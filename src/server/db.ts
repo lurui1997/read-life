@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import Database from 'better-sqlite3'
 import type { BookDetail, BookSummary, Highlight, SyncRecord } from '../shared/types'
+import { normalizeProgress } from '../shared/progress'
 import { wereadReaderUrl } from './weread-url'
 
 export type ProgressCursor =
@@ -30,6 +31,7 @@ type BookRow = {
   cover: string
   read_update_time: number | null
   on_shelf: number
+  finish_reading: number
   progress: number | null
   reading_time_seconds: number | null
   progress_state: string
@@ -37,6 +39,9 @@ type BookRow = {
   highlights_synced: number
   saved_note_count: number
   highlight_count: number
+  category: string | null
+  new_rating: number | null
+  rating_label: string | null
 }
 
 export type AppDatabase = {
@@ -46,6 +51,13 @@ export type AppDatabase = {
   getBook(bookId: string): StoredBook | null
   listStoredBooks(): StoredBook[]
   listOnShelf(): BookSummary[]
+  listArchiveGroups(): Array<{ name: string; bookIds: string[] }>
+  replaceArchiveGroups(groups: Array<{ name: string; bookIds: string[] }>): void
+  listBooksMissingMetadata(): string[]
+  setBookMetadata(
+    bookId: string,
+    metadata: { category: string | null; newRating: number | null; ratingLabel: string | null },
+  ): void
   getBookDetail(bookId: string): BookDetail | null
   upsertShelfBook(book: {
     bookId: string
@@ -53,6 +65,8 @@ export type AppDatabase = {
     author: string
     cover: string
     readUpdateTime: number | null
+    category?: string | null
+    finishReading?: boolean
   }): void
   markAbsentOffShelf(presentIds: string[]): void
   setProgress(bookId: string, progress: number, readingTimeSeconds: number, cursor: ProgressCursor): void
@@ -135,6 +149,16 @@ export function openDatabase(filePath: string): AppDatabase {
       range TEXT
     );
     CREATE INDEX IF NOT EXISTS highlights_book_id ON highlights (book_id);
+    CREATE TABLE IF NOT EXISTS shelf_groups (
+      name TEXT PRIMARY KEY,
+      sort_order INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS shelf_group_books (
+      group_name TEXT NOT NULL,
+      book_id TEXT NOT NULL,
+      sort_order INTEGER NOT NULL,
+      PRIMARY KEY (group_name, book_id)
+    );
     CREATE TABLE IF NOT EXISTS sync_runs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       started_at TEXT NOT NULL,
@@ -148,16 +172,26 @@ export function openDatabase(filePath: string): AppDatabase {
     );
   `)
 
+  const bookColumns = sqlite.prepare('PRAGMA table_info(books)').all() as Array<{ name: string }>
+  const names = new Set(bookColumns.map((column) => column.name))
+  if (!names.has('category')) sqlite.exec('ALTER TABLE books ADD COLUMN category TEXT')
+  if (!names.has('new_rating')) sqlite.exec('ALTER TABLE books ADD COLUMN new_rating INTEGER')
+  if (!names.has('rating_label')) sqlite.exec('ALTER TABLE books ADD COLUMN rating_label TEXT')
+  if (!names.has('finish_reading')) sqlite.exec('ALTER TABLE books ADD COLUMN finish_reading INTEGER NOT NULL DEFAULT 0')
+
   const getKeyStmt = sqlite.prepare<[string], { value: string }>('SELECT value FROM settings WHERE key = ?')
   const setKeyStmt = sqlite.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
   const upsertBook = sqlite.prepare(`
-    INSERT INTO books (book_id, title, author, cover, read_update_time, on_shelf)
-    VALUES (@bookId, @title, @author, @cover, @readUpdateTime, 1)
+    INSERT INTO books (book_id, title, author, cover, read_update_time, category, finish_reading, on_shelf)
+    VALUES (@bookId, @title, @author, @cover, @readUpdateTime, @category, @finishReading, 1)
     ON CONFLICT(book_id) DO UPDATE SET
       title = excluded.title,
       author = excluded.author,
       cover = excluded.cover,
       read_update_time = excluded.read_update_time,
+      category = COALESCE(excluded.category, books.category),
+      finish_reading = excluded.finish_reading,
+      progress = CASE WHEN excluded.finish_reading = 1 THEN 100 ELSE books.progress END,
       on_shelf = 1
   `)
   const markAllOff = sqlite.prepare('UPDATE books SET on_shelf = 0')
@@ -191,6 +225,17 @@ export function openDatabase(filePath: string): AppDatabase {
     ) VALUES (
       @startedAt, @finishedAt, @shelfCount, @updated, @skipped, @failed, @message, @errorsJson
     )
+  `)
+  const clearArchiveGroupsStmt = sqlite.prepare('DELETE FROM shelf_groups')
+  const clearArchiveBooksStmt = sqlite.prepare('DELETE FROM shelf_group_books')
+  const insertArchiveGroupStmt = sqlite.prepare('INSERT INTO shelf_groups (name, sort_order) VALUES (?, ?)')
+  const insertArchiveBookStmt = sqlite.prepare('INSERT INTO shelf_group_books (group_name, book_id, sort_order) VALUES (?, ?, ?)')
+  const setMetadataStmt = sqlite.prepare(`
+    UPDATE books
+    SET category = CASE WHEN @category IS NOT NULL THEN @category ELSE category END,
+        new_rating = CASE WHEN @newRating IS NOT NULL THEN @newRating ELSE new_rating END,
+        rating_label = CASE WHEN @ratingLabel IS NOT NULL THEN @ratingLabel ELSE rating_label END
+    WHERE book_id = @bookId
   `)
   const latestSyncStmt = sqlite.prepare<[], {
     started_at: string
@@ -248,11 +293,53 @@ export function openDatabase(filePath: string): AppDatabase {
         author: row.author,
         cover: row.cover,
         readUpdateTime: row.read_update_time,
-        progress: row.progress,
+        progress: normalizeProgress(row.progress, row.finish_reading === 1),
         readingTimeSeconds: row.reading_time_seconds,
+        finishReading: row.finish_reading === 1,
         highlightCount: row.highlight_count,
+        category: row.category,
+        newRating: row.new_rating,
+        ratingLabel: row.rating_label,
         wereadUrl: wereadReaderUrl(row.book_id),
       }))
+    },
+    listArchiveGroups() {
+      const groups = sqlite.prepare('SELECT name FROM shelf_groups ORDER BY sort_order').all() as Array<{ name: string }>
+      return groups.map((group) => ({
+        name: group.name,
+        bookIds: (sqlite.prepare(
+          'SELECT book_id FROM shelf_group_books WHERE group_name = ? ORDER BY sort_order',
+        ).all(group.name) as Array<{ book_id: string }>).map((row) => row.book_id),
+      }))
+    },
+    replaceArchiveGroups(groups) {
+      const tx = sqlite.transaction(() => {
+        clearArchiveBooksStmt.run()
+        clearArchiveGroupsStmt.run()
+        groups.forEach((group, groupIndex) => {
+          insertArchiveGroupStmt.run(group.name, groupIndex)
+          group.bookIds.forEach((bookId, bookIndex) => {
+            insertArchiveBookStmt.run(group.name, bookId, bookIndex)
+          })
+        })
+      })
+      tx()
+    },
+    listBooksMissingMetadata() {
+      const rows = sqlite.prepare(`
+        SELECT book_id FROM books
+        WHERE on_shelf = 1 AND new_rating IS NULL
+        ORDER BY read_update_time IS NULL, read_update_time DESC, book_id
+      `).all() as Array<{ book_id: string }>
+      return rows.map((row) => row.book_id)
+    },
+    setBookMetadata(bookId, metadata) {
+      setMetadataStmt.run({
+        bookId,
+        category: metadata.category,
+        newRating: metadata.newRating,
+        ratingLabel: metadata.ratingLabel,
+      })
     },
     getBookDetail(bookId: string) {
       const row = rowById(bookId)
@@ -292,15 +379,19 @@ export function openDatabase(filePath: string): AppDatabase {
         author: row.author,
         cover: row.cover,
         onShelf: row.on_shelf === 1,
-        progress: row.progress,
+        progress: normalizeProgress(row.progress, row.finish_reading === 1),
         readingTimeSeconds: row.reading_time_seconds,
+        finishReading: row.finish_reading === 1,
         highlightCount: row.highlight_count,
         wereadUrl: wereadReaderUrl(row.book_id),
         chapters: detailChapters,
       }
     },
     upsertShelfBook(book) {
-      upsertBook.run(book)
+      upsertBook.run({
+        ...book,
+        finishReading: book.finishReading ? 1 : 0,
+      })
     },
     markAbsentOffShelf(presentIds: string[]) {
       const present = new Set(presentIds)

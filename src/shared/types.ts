@@ -29,14 +29,19 @@ export type BookSummary = {
   readUpdateTime: number | null
   progress: number | null
   readingTimeSeconds: number | null
+  finishReading: boolean
   highlightCount: number
+  category: string | null
+  newRating: number | null
+  ratingLabel: string | null
   wereadUrl: string
 }
 
 export type BooksResponse = {
-  groups: Array<{
-    year: string
-    books: BookSummary[]
+  books: BookSummary[]
+  archiveGroups: Array<{
+    name: string
+    bookIds: string[]
   }>
 }
 
@@ -61,6 +66,7 @@ export type BookDetail = {
   onShelf: boolean
   progress: number | null
   readingTimeSeconds: number | null
+  finishReading: boolean
   highlightCount: number
   wereadUrl: string
   chapters: Chapter[]

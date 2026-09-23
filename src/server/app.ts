@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import type { AppDatabase } from './db'
-import { groupBooks } from './shelf'
+import { backfillBookMetadata } from './metadata'
 import { runSync } from './sync'
 import { WereadError, type WereadClient } from './weread'
 import type { SyncStatus } from '../shared/types'
@@ -59,6 +59,7 @@ export function createApp(options: AppOptions) {
         done = 0
         total = 0
       }
+      void backfillBookMetadata(db, client)
     })()
     return status()
   }
@@ -90,7 +91,12 @@ export function createApp(options: AppOptions) {
     return c.json(result)
   })
 
-  app.get('/api/books', (c) => c.json(groupBooks(db.listOnShelf())))
+  app.get('/api/books', (c) =>
+    c.json({
+      books: db.listOnShelf(),
+      archiveGroups: db.listArchiveGroups(),
+    }),
+  )
 
   app.get('/api/books/:bookId', (c) => {
     const detail = db.getBookDetail(c.req.param('bookId'))

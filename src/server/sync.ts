@@ -1,5 +1,6 @@
 import type { AppDatabase, ProgressCursor } from './db'
 import type { SyncRecord } from '../shared/types'
+import { normalizeProgress } from '../shared/progress'
 import { WereadError, type WereadClient } from './weread'
 
 type ShelfBook = {
@@ -8,6 +9,8 @@ type ShelfBook = {
   author: string
   cover: string
   readUpdateTime: number | null
+  category: string | null
+  finishReading: boolean
 }
 
 type HighlightDraft = {
@@ -25,6 +28,20 @@ type ChapterDraft = {
 
 const SYNC_CONCURRENCY = 8
 
+type ArchiveGroup = {
+  name: string
+  bookIds: string[]
+}
+
+export async function refreshShelfCatalog(
+  db: AppDatabase,
+  client: WereadClient,
+): Promise<{ bookCount: number; archiveCount: number }> {
+  const shelf = await fetchShelf(client)
+  applyShelf(db, shelf.books, shelf.archive)
+  return { bookCount: shelf.books.length, archiveCount: shelf.archive.length }
+}
+
 export async function runSync(
   db: AppDatabase,
   client: WereadClient,
@@ -34,23 +51,23 @@ export async function runSync(
   try {
     const shelf = await fetchShelf(client)
     const noteCounts = await fetchNoteCounts(client)
-    applyShelf(db, shelf)
-    options.onProgress?.(0, shelf.length)
+    applyShelf(db, shelf.books, shelf.archive)
+    options.onProgress?.(0, shelf.books.length)
     const tally = { updated: 0, skipped: 0, failed: 0, errors: [] as SyncRecord['errors'] }
     let done = 0
-    await eachBook(shelf, async (book) => {
+    await eachBook(shelf.books, async (book) => {
       const outcome = await syncOneBook(db, client, book, noteCounts.get(book.bookId) ?? 0, options.force)
       tally.errors.push(...outcome.errors)
       if (outcome.failed) tally.failed += 1
       else if (outcome.wrote) tally.updated += 1
       else tally.skipped += 1
       done += 1
-      options.onProgress?.(done, shelf.length)
+      options.onProgress?.(done, shelf.books.length)
     })
     const record: SyncRecord = {
       startedAt,
       finishedAt: new Date().toISOString(),
-      shelfCount: shelf.length,
+      shelfCount: shelf.books.length,
       updated: tally.updated,
       skipped: tally.skipped,
       failed: tally.failed,
@@ -75,11 +92,12 @@ export async function runSync(
   }
 }
 
-function applyShelf(db: AppDatabase, shelf: ShelfBook[]) {
+function applyShelf(db: AppDatabase, shelf: ShelfBook[], archive: ArchiveGroup[]) {
   for (const book of shelf) {
     db.upsertShelfBook(book)
   }
   db.markAbsentOffShelf(shelf.map((book) => book.bookId))
+  db.replaceArchiveGroups(archive)
 }
 
 async function syncOneBook(
@@ -116,7 +134,8 @@ async function syncProgress(
     const data = (await callWithRetry(() => client.call('/book/getprogress', { bookId: book.bookId }))) as {
       book?: { progress?: unknown; readingTime?: unknown; recordReadingTime?: unknown }
     }
-    const progress = typeof data.book?.progress === 'number' ? Math.round(data.book.progress) : 0
+    const rawProgress = typeof data.book?.progress === 'number' ? Math.round(data.book.progress) : 0
+    const progress = normalizeProgress(rawProgress, book.finishReading) ?? 0
     const readingTime = typeof data.book?.readingTime === 'number'
       ? Math.round(data.book.readingTime)
       : typeof data.book?.recordReadingTime === 'number'
@@ -205,10 +224,29 @@ function sameClock(incoming: number | null, cursor: ProgressCursor): boolean {
   return false
 }
 
-async function fetchShelf(client: WereadClient): Promise<ShelfBook[]> {
-  const data = (await client.call('/shelf/sync')) as { books?: unknown }
+async function fetchShelf(client: WereadClient): Promise<{ books: ShelfBook[]; archive: ArchiveGroup[] }> {
+  const data = (await client.call('/shelf/sync')) as { books?: unknown; archive?: unknown }
   if (!Array.isArray(data.books)) throw new WereadError('书架响应缺少 books')
-  return data.books.map(parseShelfBook)
+  return {
+    books: data.books.map(parseShelfBook),
+    archive: parseArchiveGroups(data.archive),
+  }
+}
+
+function parseArchiveGroups(value: unknown): ArchiveGroup[] {
+  if (!Array.isArray(value)) return []
+  const groups: ArchiveGroup[] = []
+  for (const item of value) {
+    const group = asRecord(item)
+    const name = group.name
+    const bookIds = group.bookIds
+    if (typeof name !== 'string' || name.length === 0 || !Array.isArray(bookIds)) continue
+    groups.push({
+      name,
+      bookIds: bookIds.filter((bookId): bookId is string => typeof bookId === 'string' && bookId.length > 0),
+    })
+  }
+  return groups
 }
 
 async function fetchNoteCounts(client: WereadClient): Promise<Map<string, number>> {
@@ -238,6 +276,8 @@ function parseShelfBook(value: unknown): ShelfBook {
     author: typeof book.author === 'string' ? book.author : '',
     cover: typeof book.cover === 'string' ? book.cover : '',
     readUpdateTime: typeof book.readUpdateTime === 'number' ? book.readUpdateTime : null,
+    category: typeof book.category === 'string' && book.category.length > 0 ? book.category : null,
+    finishReading: book.finishReading === 1,
   }
 }
 

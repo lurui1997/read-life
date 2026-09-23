@@ -7,7 +7,8 @@ export function formatDuration(seconds: number | null): string {
   return `${minutes} 分钟`
 }
 
-export function formatProgress(progress: number | null): string {
+export function formatProgress(progress: number | null, finishReading = false): string {
+  if (finishReading || progress === 100) return '已读完'
   if (progress == null) return '未同步'
   return `${progress}%`
 }

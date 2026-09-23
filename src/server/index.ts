@@ -7,6 +7,8 @@ import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { createApp } from './app'
 import { openDatabase } from './db'
+import { backfillBookMetadata } from './metadata'
+import { refreshShelfCatalog } from './sync'
 import { createWereadClient } from './weread'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
@@ -15,6 +17,29 @@ const dbPath = process.env.READ_LIFE_DB ?? path.join(root, 'data', 'read-life.sq
 
 const db = openDatabase(dbPath)
 const app = createApp({ db, createClient: (apiKey) => createWereadClient(apiKey) })
+
+function startBackgroundCatalogRefresh() {
+  const apiKey = db.getApiKey()
+  if (!apiKey) return
+  const client = createWereadClient(apiKey)
+  void (async () => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await refreshShelfCatalog(db, client)
+        break
+      } catch {
+        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 3000 * (attempt + 1)))
+      }
+    }
+    try {
+      await backfillBookMetadata(db, client)
+    } catch {
+      // 推荐值补拉失败时不影响主服务
+    }
+  })()
+}
+
+startBackgroundCatalogRefresh()
 const production = process.env.NODE_ENV === 'production'
 
 if (production) {

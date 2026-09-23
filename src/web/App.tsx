@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { getBook, getBooks, getKeyStatus, getSync, saveKey, startSync } from './api'
 import { formatDuration, formatProgress } from './format'
-import { groupBooks } from '../server/shelf'
+import { BookCard } from './BookCard'
+import { ShelfBrowse } from './ShelfBrowse'
+import { applyRandomOrder, buildShelfSections, type ShelfMode } from './shelf-views'
 import type { BookDetail, BooksResponse, SyncStatus } from '../shared/types'
 
 type Route =
@@ -23,6 +25,7 @@ export function App() {
   const [libraryVersion, setLibraryVersion] = useState(0)
   const wasRunning = useRef(false)
   const shelfVisible = useRef(false)
+  const [notifySyncAt, setNotifySyncAt] = useState<string | null>(null)
 
   useEffect(() => {
     const onPop = () => setRoute(readRoute())
@@ -43,6 +46,7 @@ export function App() {
       if (wasRunning.current && !status.running) {
         shelfVisible.current = false
         setLibraryVersion((version) => version + 1)
+        if (status.last?.finishedAt) setNotifySyncAt(status.last.finishedAt)
       }
       wasRunning.current = status.running
     }
@@ -80,7 +84,7 @@ export function App() {
         </nav>
       </header>
       {notice ? <p className="error">{notice}</p> : null}
-      <SyncBanner status={sync} />
+      <SyncBanner status={sync} notifySyncAt={notifySyncAt} />
       {route.name === 'settings' ? <Settings /> : null}
       {route.name === 'shelf' ? <Shelf libraryVersion={libraryVersion} /> : null}
       {route.name === 'book' ? <BookPage bookId={route.bookId} libraryVersion={libraryVersion} /> : null}
@@ -88,14 +92,35 @@ export function App() {
   )
 }
 
-function SyncBanner({ status }: { status: SyncStatus | null }) {
-  const [hiddenFinishedAt, setHiddenFinishedAt] = useState<string | null>(null)
+const syncBannerDismissKey = 'read-life.sync-banner-dismissed'
+
+function readDismissedSync(): string | null {
+  try {
+    return localStorage.getItem(syncBannerDismissKey)
+  } catch {
+    return null
+  }
+}
+
+function writeDismissedSync(finishedAt: string) {
+  try {
+    localStorage.setItem(syncBannerDismissKey, finishedAt)
+  } catch {
+    // ignore
+  }
+}
+
+function SyncBanner({ status, notifySyncAt }: { status: SyncStatus | null; notifySyncAt: string | null }) {
+  const [dismissedAt, setDismissedAt] = useState<string | null>(() => readDismissedSync())
+
   if (!status) return null
   if (status.running) {
     const progress = status.total > 0 ? ` ${status.done} / ${status.total}` : ''
     return <div className="banner">正在同步书架、划线和进度{progress}。失败的书会自动再试。</div>
   }
-  if (!status.last || hiddenFinishedAt === status.last.finishedAt) return null
+  if (!status.last) return null
+  if (dismissedAt === status.last.finishedAt) return null
+  if (notifySyncAt !== status.last.finishedAt) return null
   return (
     <div className="banner">
       <p>
@@ -103,19 +128,48 @@ function SyncBanner({ status }: { status: SyncStatus | null }) {
         {status.last.message ? `。${status.last.message}` : ''}
         {status.last.failed > 0 ? '。失败的书会在下一次同步时自动再试。' : ''}
       </p>
-      <button type="button" className="banner-close" onClick={() => setHiddenFinishedAt(status.last?.finishedAt ?? null)}>关闭</button>
+      <button
+        type="button"
+        className="banner-close"
+        onClick={() => {
+          const finishedAt = status.last?.finishedAt ?? ''
+          writeDismissedSync(finishedAt)
+          setDismissedAt(finishedAt)
+        }}
+      >
+        关闭
+      </button>
     </div>
   )
 }
 
-const shelfCacheKey = 'read-life.shelf'
+const shelfCacheKey = 'read-life.shelf.v2'
+const shelfModeKey = 'read-life.shelf-mode'
+const shelfRandomOrderKey = 'read-life.shelf-random-order'
+
+const shelfModes: Array<{ id: ShelfMode; label: string }> = [
+  { id: 'archive', label: '分组' },
+  { id: 'progress', label: '进度' },
+  { id: 'rating', label: '推荐值' },
+  { id: 'category', label: '分类' },
+  { id: 'random', label: '随机' },
+]
+
+function readShelfMode(): ShelfMode {
+  const saved = localStorage.getItem(shelfModeKey)
+  return shelfModes.some((mode) => mode.id === saved) ? (saved as ShelfMode) : 'archive'
+}
+
+function readRandomOrder(): boolean {
+  return localStorage.getItem(shelfRandomOrderKey) === '1'
+}
 
 function readShelfCache(): BooksResponse | null {
   try {
     const raw = localStorage.getItem(shelfCacheKey)
     if (!raw) return null
     const parsed = JSON.parse(raw) as BooksResponse
-    if (!Array.isArray(parsed.groups)) return null
+    if (!Array.isArray(parsed.books) || !Array.isArray(parsed.archiveGroups)) return null
     return parsed
   } catch {
     return null
@@ -133,8 +187,11 @@ function writeShelfCache(data: BooksResponse) {
 function Shelf({ libraryVersion }: { libraryVersion: number }) {
   const [data, setData] = useState<BooksResponse | null>(readShelfCache)
   const [error, setError] = useState('')
-  const [openYear, setOpenYear] = useState<string | null>(null)
+  const [mode, setMode] = useState<ShelfMode>(readShelfMode)
+  const [openSection, setOpenSection] = useState<string | null>(null)
   const [visibleCount, setVisibleCount] = useState(48)
+  const [randomOrder, setRandomOrder] = useState(readRandomOrder)
+  const [shuffleSeed, setShuffleSeed] = useState(() => Date.now())
 
   useEffect(() => {
     let stop = false
@@ -153,59 +210,125 @@ function Shelf({ libraryVersion }: { libraryVersion: number }) {
     }
   }, [libraryVersion])
 
+  useEffect(() => {
+    localStorage.setItem(shelfModeKey, mode)
+    setOpenSection(null)
+    setVisibleCount(48)
+    if (mode === 'random') {
+      setRandomOrder(true)
+      setShuffleSeed(Date.now())
+    }
+  }, [mode])
+
+  useEffect(() => {
+    localStorage.setItem(shelfRandomOrderKey, randomOrder ? '1' : '0')
+  }, [randomOrder])
+
   if (!data) {
     if (error) return <p className="error">{error}</p>
     return <p className="muted">正在读取书架。</p>
   }
-  const groups = groupBooks(data.groups.flatMap((group) => group.books)).groups
-  if (groups.length === 0) return <p>书架还是空的。先在设置里保存 API Key，再同步。</p>
-  const selected = groups.some((group) => group.year === openYear)
-    ? openYear
-    : (groups.find((group) => group.year !== '未知')?.year ?? groups[0]?.year)
+  if (data.books.length === 0) return <p>书架还是空的。先在设置里保存 API Key，再同步。</p>
+
+  const baseSections = buildShelfSections(data.books, data.archiveGroups, mode)
+  const shuffleOn = randomOrder || mode === 'random'
+  const browseMode = mode === 'archive' || mode === 'category'
+  const sections = browseMode
+    ? baseSections
+    : shuffleOn
+      ? applyRandomOrder(baseSections, shuffleSeed)
+      : baseSections
+  const selected = sections.some((section) => section.key === openSection)
+    ? openSection
+    : (sections[0]?.key ?? null)
+
   return (
-    <div>
-      {groups.map((group) => {
-        const open = group.year === selected
-        const books = open ? group.books.slice(0, visibleCount) : []
-        return (
-          <section key={group.year}>
-            <button
-              type="button"
-              className={open ? 'year open' : 'year'}
-              onClick={() => {
-                setOpenYear(group.year)
-                setVisibleCount(48)
-              }}
-            >
-              {group.year === '未知' ? '未知' : `${group.year} 年`} · {group.books.length}
+    <div className="shelf">
+      <div className="shelf-modes">
+        {shelfModes.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={mode === item.id ? 'mode active' : 'mode'}
+            onClick={() => setMode(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="shelf-toolbar">
+        {mode !== 'random' ? (
+          <button
+            type="button"
+            className={randomOrder ? 'filter-chip active' : 'filter-chip'}
+            onClick={() => {
+              setRandomOrder((on) => {
+                if (!on) setShuffleSeed(Date.now())
+                return !on
+              })
+            }}
+          >
+            随机顺序
+          </button>
+        ) : null}
+        {shuffleOn ? (
+          <>
+            <button type="button" className="filter-chip" onClick={() => setShuffleSeed(Date.now())}>
+              换一个顺序
             </button>
-            {open ? (
-              <>
-                <div className="grid">
-                  {books.map((book) => (
-                    <article className="card" key={book.bookId}>
-                      <a href={`/book/${encodeURIComponent(book.bookId)}`}>
-                        {book.cover ? <img src={book.cover} alt="" loading="lazy" /> : <div className="cover-fallback" />}
-                      </a>
-                      <div>
-                        <h2><a href={`/book/${encodeURIComponent(book.bookId)}`}>{book.title || '未命名'}</a></h2>
-                        <p className="meta">{book.author}</p>
-                        <p className="meta">进度 {formatProgress(book.progress)} · 划线 {book.highlightCount}</p>
-                        <a className="weread-link" href={book.wereadUrl} target="_blank" rel="noreferrer">微信读书</a>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-                {group.books.length > books.length ? (
-                  <button type="button" className="more" onClick={() => setVisibleCount((count) => count + 48)}>
-                    再显示 {Math.min(48, group.books.length - books.length)} 本
-                  </button>
-                ) : null}
-              </>
-            ) : null}
-          </section>
-        )
-      })}
+            <p className="muted shelf-toolbar-note">超过 100 本的分组会随机排列，排位靠后的书也有机会出现。</p>
+          </>
+        ) : null}
+      </div>
+
+      {browseMode ? (
+        <ShelfBrowse
+          variant={mode}
+          sections={baseSections}
+          totalBooks={data.books.length}
+          storageKey={`read-life.browse.${mode}`}
+          randomOrder={shuffleOn}
+          shuffleSeed={shuffleSeed}
+        />
+      ) : (
+        sections.map((section) => {
+          const open = section.key === selected
+          const books = open ? section.books.slice(0, visibleCount) : []
+          return (
+            <section key={section.key}>
+              <button
+                type="button"
+                className={open ? 'section-head open' : 'section-head'}
+                onClick={() => {
+                  setOpenSection(section.key)
+                  setVisibleCount(48)
+                }}
+              >
+                {section.label} · {section.books.length}
+              </button>
+              {open ? (
+                <>
+                  <div className="grid">
+                    {books.map((book) => (
+                      <BookCard book={book} key={book.bookId} />
+                    ))}
+                  </div>
+                  {section.books.length > books.length ? (
+                    <button type="button" className="more" onClick={() => setVisibleCount((count) => count + 48)}>
+                      再显示 {Math.min(48, section.books.length - books.length)} 本
+                    </button>
+                  ) : null}
+                </>
+              ) : null}
+            </section>
+          )
+        })
+      )}
+
+      {mode === 'category' && data.books.some((book) => !book.category) ? (
+        <p className="muted shelf-note">部分书的分类还在同步中。</p>
+      ) : null}
     </div>
   )
 }
@@ -228,7 +351,7 @@ function BookPage({ bookId, libraryVersion }: { bookId: string; libraryVersion: 
           <h1>{book.title || '未命名'}</h1>
           <p className="meta">{book.author}</p>
           <div className="stats">
-            <span>进度 {formatProgress(book.progress)}</span>
+            <span>进度 {formatProgress(book.progress, book.finishReading)}</span>
             <span>阅读 {formatDuration(book.readingTimeSeconds)}</span>
             <span>划线 {book.highlightCount}</span>
           </div>

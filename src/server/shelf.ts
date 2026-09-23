@@ -1,6 +1,13 @@
 import type { BookSummary, BooksResponse } from '../shared/types'
 
-export function groupBooks(books: BookSummary[]): BooksResponse {
+export type YearGroupedBooks = {
+  groups: Array<{
+    year: string
+    books: BookSummary[]
+  }>
+}
+
+export function groupBooks(books: BookSummary[]): YearGroupedBooks {
   const dated = new Map<number, BookSummary[]>()
   const unknown: BookSummary[] = []
   for (const book of books) {

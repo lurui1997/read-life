@@ -6,14 +6,16 @@ const chapter = { chapterUid: 108, chapterIdx: 23, title: '15 红岸之四' }
 
 function library(options?: {
   books?: ReturnType<typeof shelfBook>[]
+  archive?: Array<{ name: string; bookIds: string[] }>
   notes?: Array<{ bookId: string; noteCount: number; sort: number }>
   onHighlight?: (bookId: string) => unknown
   onProgress?: (bookId: string) => unknown
+  onBookInfo?: (bookId: string) => unknown
 }) {
   const books = options?.books ?? [shelfBook({ bookId: '695233', title: '三体', readUpdateTime: localTimestamp(2026) })]
   const notes = options?.notes ?? books.map((book, index) => ({ bookId: book.bookId, noteCount: 1, sort: index + 1 }))
   return fakeWeread({
-    '/shelf/sync': () => ({ books }),
+    '/shelf/sync': () => ({ books, archive: options?.archive ?? [] }),
     '/user/notebooks': () => notebookPage(notes),
     '/book/getprogress': (params) => (options?.onProgress ?? (() => progress(15, 100)))(String(params.bookId)),
     '/book/bookmarklist': (params) =>
@@ -22,6 +24,10 @@ function library(options?: {
           highlights('695233', [{ bookmarkId: 'h1', chapterUid: 108, markText: '原文', range: '10-20' }], [chapter])))(
         String(params.bookId),
       ),
+    '/book/info': (params) =>
+      (options?.onBookInfo ?? (() => ({
+        book: { category: '默认分类', newRating: 900, newRatingDetail: { title: '神作' } },
+      })))(String(params.bookId)),
   })
 }
 
@@ -285,6 +291,36 @@ describe('同步', () => {
     await runSync(db, dated, { force: false })
     expect(dated.calls.map((call) => call.apiName)).toContain('/book/getprogress')
     expect(db.getBook('695233')?.progress).toBe(7)
+    db.close()
+  })
+
+  it('标记读完的书进度记为 100', async () => {
+    const db = tempDb()
+    await runSync(
+      db,
+      library({
+        books: [shelfBook({ bookId: '695233', title: '三体', finishReading: true })],
+        onProgress: () => ({ book: { progress: 99, readingTime: 3600 } }),
+      }),
+      { force: false },
+    )
+    expect(db.listOnShelf()[0]?.progress).toBe(100)
+    expect(db.listOnShelf()[0]?.finishReading).toBe(true)
+    db.close()
+  })
+
+  it('同步时会保存书架分组和分类', async () => {
+    const db = tempDb()
+    await runSync(
+      db,
+      library({
+        books: [shelfBook({ bookId: '695233', title: '三体', category: '精品小说-科幻小说' })],
+        archive: [{ name: '科幻', bookIds: ['695233'] }],
+      }),
+      { force: false },
+    )
+    expect(db.listArchiveGroups()).toEqual([{ name: '科幻', bookIds: ['695233'] }])
+    expect(db.listOnShelf()[0]?.category).toBe('精品小说-科幻小说')
     db.close()
   })
 

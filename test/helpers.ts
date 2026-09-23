@@ -36,6 +36,8 @@ export function shelfBook(book: {
   author?: string
   cover?: string
   readUpdateTime?: number | null
+  category?: string | null
+  finishReading?: boolean
 }) {
   return {
     bookId: book.bookId,
@@ -43,6 +45,8 @@ export function shelfBook(book: {
     author: book.author ?? '作者',
     cover: book.cover ?? 'https://example.com/cover.jpg',
     readUpdateTime: book.readUpdateTime === undefined ? localTimestamp(2026) : book.readUpdateTime,
+    category: book.category ?? null,
+    finishReading: book.finishReading ? 1 : 0,
   }
 }
 
