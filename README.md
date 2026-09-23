@@ -49,7 +49,7 @@
 
 <div align="center">
 
-![阅读生活界面演示：书架与书页](docs/demo.gif)
+![阅读生活界面演示：书架与书页](docs/demo.gif?v=2)
 
 <sub>惊喜模式 · 换一个顺序 · 书页划线 — 在本机 <code>http://127.0.0.1:8788</code> 录制</sub>
 
