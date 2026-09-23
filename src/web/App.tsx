@@ -83,17 +83,7 @@ export function App() {
     <div className={`app app-${route.name}`}>
       <header className={onShelf ? 'topbar topbar-shelf' : 'topbar'}>
         <a className="brand" href="/" onClick={(event) => { event.preventDefault(); go('/') }}>阅读生活</a>
-        <nav className={onShelf ? 'nav nav-minimal' : 'nav'}>
-          {onShelf ? (
-            <>
-              <button type="button" className="nav-text" onClick={() => void syncNow(false)} disabled={sync?.running}>
-                {sync?.running ? '同步中…' : '同步'}
-              </button>
-              <button type="button" className="nav-text" onClick={() => void syncNow(true)} disabled={sync?.running}>
-                强制同步
-              </button>
-            </>
-          ) : null}
+        <nav className={onShelf || onBook ? 'nav nav-minimal' : 'nav'}>
           <a
             className={onShelf || onBook ? 'nav-text' : undefined}
             href="/settings"
@@ -105,7 +95,22 @@ export function App() {
       </header>
       {notice ? <p className="error">{notice}</p> : null}
       <SyncBanner status={sync} notifySyncAt={notifySyncAt} />
-      {route.name === 'settings' ? <Settings /> : null}
+      {route.name === 'settings' ? (
+        <Settings
+          sync={sync}
+          libraryVersion={libraryVersion}
+          onSync={syncNow}
+          onBack={() => go('/')}
+          onOpenGuide={() => {
+            try {
+              localStorage.removeItem('read-life.feature-showcase-dismissed')
+            } catch {
+              // ignore
+            }
+            go('/?guide=1')
+          }}
+        />
+      ) : null}
       {route.name === 'shelf' ? <Shelf libraryVersion={libraryVersion} /> : null}
       {route.name === 'book' ? (
         <BookPage bookId={route.bookId} libraryVersion={libraryVersion} onBack={() => go('/')} />
@@ -219,7 +224,18 @@ function Shelf({ libraryVersion }: { libraryVersion: number }) {
   const [visibleCount, setVisibleCount] = useState(48)
   const [randomOrder, setRandomOrder] = useState(readRandomOrder)
   const [shuffleSeed, setShuffleSeed] = useState(() => Date.now())
-  const [showcaseVisible, setShowcaseVisible] = useState(() => !readShowcaseDismissed())
+  const [showcaseVisible, setShowcaseVisible] = useState(() => {
+    const guide = new URLSearchParams(window.location.search).get('guide') === '1'
+    return guide || !readShowcaseDismissed()
+  })
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('guide') === '1') {
+      setShowcaseVisible(true)
+      window.history.replaceState({}, '', '/')
+    }
+  }, [])
 
   useEffect(() => {
     let stop = false
@@ -270,20 +286,6 @@ function Shelf({ libraryVersion }: { libraryVersion: number }) {
       : baseSections
   return (
     <div className="shelf">
-      <header className="shelf-intro">
-        <p className="shelf-eyebrow">我的书架</p>
-        <h1 className="shelf-headline">
-          <span className="shelf-count-num">{data.books.length.toLocaleString('zh-CN')}</span>
-          <span className="shelf-count-label">本书在架上</span>
-        </h1>
-        <p className="shelf-lede">按自己的节奏浏览，不必一次看完。</p>
-        {!showcaseVisible ? (
-          <button type="button" className="feature-showcase-reopen" onClick={() => setShowcaseVisible(true)}>
-            功能导览
-          </button>
-        ) : null}
-      </header>
-
       {showcaseVisible ? (
         <FeatureShowcase
           onDismiss={() => setShowcaseVisible(false)}
@@ -440,15 +442,34 @@ function BookPage({
   )
 }
 
-function Settings() {
+function Settings({
+  sync,
+  libraryVersion,
+  onSync,
+  onBack,
+  onOpenGuide,
+}: {
+  sync: SyncStatus | null
+  libraryVersion: number
+  onSync: (force: boolean) => Promise<void>
+  onBack: () => void
+  onOpenGuide: () => void
+}) {
   const [configured, setConfigured] = useState<boolean | null>(null)
   const [apiKey, setApiKey] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [bookCount, setBookCount] = useState<number | null>(null)
 
   useEffect(() => {
     void getKeyStatus().then((status) => setConfigured(status.configured))
   }, [])
+
+  useEffect(() => {
+    void getBooks()
+      .then((data) => setBookCount(data.books.length))
+      .catch(() => setBookCount(null))
+  }, [libraryVersion])
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault()
@@ -464,23 +485,87 @@ function Settings() {
     }
   }
 
+  const last = sync?.last
+
   return (
-    <form className="settings" onSubmit={(event) => void onSubmit(event)}>
-      <h1>微信读书 API Key</h1>
-      <p className="muted">
-        {configured ? '这台电脑上已经有 Key。保存新的 Key 之前会先向微信读书确认。' : '还没有 Key。Key 只存在这台电脑上。'}
-      </p>
-      <input
-        type="password"
-        name="apiKey"
-        autoComplete="off"
-        value={apiKey}
-        placeholder="粘贴 API Key"
-        onChange={(event) => setApiKey(event.target.value)}
-      />
-      <button className="primary" type="submit">保存</button>
-      {message ? <p>{message}</p> : null}
-      {error ? <p className="error">{error}</p> : null}
-    </form>
+    <div className="settings-page">
+      <a
+        className="book-back"
+        href="/"
+        onClick={(event) => {
+          event.preventDefault()
+          onBack()
+        }}
+      >
+        返回书架
+      </a>
+
+      <header className="settings-head">
+        <h1>设置</h1>
+        <p className="muted">同步、书架概览与 API Key 都在这里。</p>
+      </header>
+
+      <section className="settings-panel">
+        <h2>我的书架</h2>
+        {bookCount != null ? (
+          <>
+            <p className="settings-stat">{bookCount.toLocaleString('zh-CN')}</p>
+            <p className="settings-stat-label">本书在架上</p>
+          </>
+        ) : (
+          <p className="muted">正在读取书架…</p>
+        )}
+        <p className="settings-lede">按自己的节奏浏览，不必一次看完。</p>
+      </section>
+
+      <section className="settings-panel">
+        <h2>同步</h2>
+        <div className="settings-actions">
+          <button type="button" className="primary" onClick={() => void onSync(false)} disabled={sync?.running}>
+            {sync?.running ? '同步中…' : '同步'}
+          </button>
+          <button type="button" className="settings-secondary" onClick={() => void onSync(true)} disabled={sync?.running}>
+            强制同步
+          </button>
+        </div>
+        {sync?.running && sync.total > 0 ? (
+          <p className="muted settings-meta">进度 {sync.done} / {sync.total}</p>
+        ) : null}
+        {last ? (
+          <p className="muted settings-meta">
+            上次同步：书架 {last.shelfCount} 本，更新 {last.updated}，跳过 {last.skipped}
+            {last.failed > 0 ? `，失败 ${last.failed}` : ''}
+          </p>
+        ) : (
+          <p className="muted settings-meta">还没有同步记录。</p>
+        )}
+      </section>
+
+      <section className="settings-panel">
+        <h2>功能导览</h2>
+        <p className="muted">了解书架、书页与惊喜模式的用法。</p>
+        <button type="button" className="settings-secondary" onClick={onOpenGuide}>
+          打开功能导览
+        </button>
+      </section>
+
+      <form className="settings-panel settings-form" onSubmit={(event) => void onSubmit(event)}>
+        <h2>微信读书 API Key</h2>
+        <p className="muted">
+          {configured ? '这台电脑上已经有 Key。保存新的 Key 之前会先向微信读书确认。' : '还没有 Key。Key 只存在这台电脑上。'}
+        </p>
+        <input
+          type="password"
+          name="apiKey"
+          autoComplete="off"
+          value={apiKey}
+          placeholder="粘贴 API Key"
+          onChange={(event) => setApiKey(event.target.value)}
+        />
+        <button className="primary" type="submit">保存</button>
+        {message ? <p>{message}</p> : null}
+        {error ? <p className="error">{error}</p> : null}
+      </form>
+    </div>
   )
 }

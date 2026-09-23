@@ -26,15 +26,22 @@ await page.evaluate(() => {
   localStorage.setItem('read-life.shelf-random-order', '1')
 })
 await page.reload({ waitUntil: 'networkidle' })
-await page.waitForTimeout(800)
+await page.waitForTimeout(900)
+await capture(page, '01-shelf')
 
+await page.getByRole('link', { name: '设置' }).click()
+await page.waitForTimeout(700)
+await capture(page, '02-settings')
+
+await page.getByRole('link', { name: '返回书架' }).click()
+await page.waitForTimeout(600)
 await page.getByRole('tab', { name: '随机' }).click()
 await page.waitForTimeout(1200)
-await capture(page, '01-surprise')
+await capture(page, '03-surprise')
 
 await page.getByRole('button', { name: '换一个顺序' }).click()
 await page.waitForTimeout(900)
-await capture(page, '02-surprise-shuffle')
+await capture(page, '04-surprise-shuffle')
 
 const bookId = await page.evaluate(async () => {
   const res = await fetch('/api/books')
@@ -49,10 +56,10 @@ const bookId = await page.evaluate(async () => {
 if (bookId) {
   await page.goto(`${base}/book/${encodeURIComponent(bookId)}`, { waitUntil: 'networkidle' })
   await page.waitForTimeout(1500)
-  await capture(page, '03-book')
+  await capture(page, '05-book')
   await page.evaluate(() => window.scrollTo(0, 420))
   await page.waitForTimeout(600)
-  await capture(page, '04-book-scroll')
+  await capture(page, '06-book-scroll')
 }
 
 await browser.close()
