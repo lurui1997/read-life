@@ -8,8 +8,6 @@ export type ShelfSection = {
   books: BookSummary[]
 }
 
-export const RANDOM_ORDER_THRESHOLD = 100
-
 export function buildShelfSections(
   books: BookSummary[],
   archiveGroups: Array<{ name: string; bookIds: string[] }>,
@@ -122,17 +120,10 @@ export function pickRandomBook(books: BookSummary[]): BookSummary | null {
   return books[Math.floor(Math.random() * books.length)] ?? null
 }
 
-export function applyRandomOrder(
-  sections: ShelfSection[],
-  seed: number,
-  threshold = RANDOM_ORDER_THRESHOLD,
-): ShelfSection[] {
+export function applyRandomOrder(sections: ShelfSection[], seed: number): ShelfSection[] {
   return sections.map((section) => ({
     ...section,
-    books:
-      section.books.length > threshold
-        ? shuffleBooks(section.books, seed + hashString(section.key))
-        : section.books,
+    books: shuffleBooks(section.books, seed + hashString(section.key)),
   }))
 }
 

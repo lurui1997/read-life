@@ -24,8 +24,10 @@ export function BookCard({ book, large = false, subtitle = null }: BookCardProps
           <span style={{ width: `${Math.max(0, Math.min(progress, 100))}%` }} />
         </div>
         <div className="card-foot">
-          <p className="meta">进度 {formatProgress(book.progress, book.finishReading)} · 划线 {book.highlightCount}</p>
-          <a className="weread-link" href={book.wereadUrl} target="_blank" rel="noreferrer">微信读书</a>
+          <p className="meta">{formatProgress(book.progress, book.finishReading)} · {book.highlightCount} 条划线</p>
+          <a className="card-external" href={book.wereadUrl} target="_blank" rel="noreferrer" aria-label="在微信读书打开">
+            外读
+          </a>
         </div>
       </div>
     </article>

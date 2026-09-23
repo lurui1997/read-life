@@ -74,21 +74,40 @@ export function App() {
     }
   }
 
+  const onShelf = route.name === 'shelf'
+  const onBook = route.name === 'book'
+
   return (
-    <div className="app">
+    <div className={`app app-${route.name}`}>
       <header className="topbar">
         <a className="brand" href="/" onClick={(event) => { event.preventDefault(); go('/') }}>阅读生活</a>
         <nav className="nav">
-          <button type="button" onClick={() => void syncNow(false)} disabled={sync?.running}>同步</button>
-          <button type="button" onClick={() => void syncNow(true)} disabled={sync?.running}>强制同步</button>
-          <a href="/settings" onClick={(event) => { event.preventDefault(); go('/settings') }}>设置</a>
+          {onShelf ? (
+            <>
+              <button type="button" className="nav-quiet" onClick={() => void syncNow(false)} disabled={sync?.running}>
+                {sync?.running ? '同步中…' : '同步'}
+              </button>
+              <button type="button" className="nav-quiet" onClick={() => void syncNow(true)} disabled={sync?.running}>
+                强制同步
+              </button>
+            </>
+          ) : null}
+          <a
+            className={onBook ? 'nav-quiet' : undefined}
+            href="/settings"
+            onClick={(event) => { event.preventDefault(); go('/settings') }}
+          >
+            设置
+          </a>
         </nav>
       </header>
       {notice ? <p className="error">{notice}</p> : null}
       <SyncBanner status={sync} notifySyncAt={notifySyncAt} />
       {route.name === 'settings' ? <Settings /> : null}
       {route.name === 'shelf' ? <Shelf libraryVersion={libraryVersion} /> : null}
-      {route.name === 'book' ? <BookPage bookId={route.bookId} libraryVersion={libraryVersion} /> : null}
+      {route.name === 'book' ? (
+        <BookPage bookId={route.bookId} libraryVersion={libraryVersion} onBack={() => go('/')} />
+      ) : null}
     </div>
   )
 }
@@ -117,28 +136,33 @@ function SyncBanner({ status, notifySyncAt }: { status: SyncStatus | null; notif
   if (!status) return null
   if (status.running) {
     const progress = status.total > 0 ? ` ${status.done} / ${status.total}` : ''
-    return <div className="banner">正在同步书架、划线和进度{progress}。失败的书会自动再试。</div>
+    return (
+      <div className="banner banner-sync" role="status">
+        <p>正在同步书架、划线和进度{progress}。失败的书会自动再试。</p>
+      </div>
+    )
   }
   if (!status.last) return null
   if (dismissedAt === status.last.finishedAt) return null
   if (notifySyncAt !== status.last.finishedAt) return null
   return (
-    <div className="banner">
+    <div className="banner banner-done">
       <p>
-        书架 {status.last.shelfCount} 本，更新 {status.last.updated}，跳过 {status.last.skipped}，失败 {status.last.failed}
+        同步完成：书架 {status.last.shelfCount} 本，更新 {status.last.updated}，跳过 {status.last.skipped}
+        {status.last.failed > 0 ? `，失败 ${status.last.failed}` : ''}
         {status.last.message ? `。${status.last.message}` : ''}
-        {status.last.failed > 0 ? '。失败的书会在下一次同步时自动再试。' : ''}
       </p>
       <button
         type="button"
         className="banner-close"
+        aria-label="关闭同步提示"
         onClick={() => {
           const finishedAt = status.last?.finishedAt ?? ''
           writeDismissedSync(finishedAt)
           setDismissedAt(finishedAt)
         }}
       >
-        关闭
+        知道了
       </button>
     </div>
   )
@@ -227,9 +251,11 @@ function Shelf({ libraryVersion }: { libraryVersion: number }) {
 
   if (!data) {
     if (error) return <p className="error">{error}</p>
-    return <p className="muted">正在读取书架。</p>
+    return <p className="state-message">正在打开书架…</p>
   }
-  if (data.books.length === 0) return <p>书架还是空的。先在设置里保存 API Key，再同步。</p>
+  if (data.books.length === 0) {
+    return <p className="state-message">书架还是空的。先在设置里保存 API Key，再同步。</p>
+  }
 
   const baseSections = buildShelfSections(data.books, data.archiveGroups, mode)
   const shuffleOn = randomOrder || mode === 'random'
@@ -245,11 +271,18 @@ function Shelf({ libraryVersion }: { libraryVersion: number }) {
 
   return (
     <div className="shelf">
-      <div className="shelf-modes">
+      <header className="shelf-intro">
+        <p className="shelf-count">{data.books.length} 本书在架上</p>
+        <p className="shelf-lede muted">按自己的节奏浏览，不必一次看完。</p>
+      </header>
+
+      <div className="shelf-modes" role="tablist" aria-label="浏览方式">
         {shelfModes.map((item) => (
           <button
             key={item.id}
             type="button"
+            role="tab"
+            aria-selected={mode === item.id}
             className={mode === item.id ? 'mode active' : 'mode'}
             onClick={() => setMode(item.id)}
           >
@@ -285,30 +318,32 @@ function Shelf({ libraryVersion }: { libraryVersion: number }) {
           const open = section.key === selected
           const books = open ? section.books.slice(0, visibleCount) : []
           return (
-            <section key={section.key}>
+            <section key={section.key} className={open ? 'shelf-section open' : 'shelf-section'}>
               <button
                 type="button"
                 className={open ? 'section-head open' : 'section-head'}
+                aria-expanded={open}
                 onClick={() => {
-                  setOpenSection(section.key)
+                  setOpenSection(open ? null : section.key)
                   setVisibleCount(48)
                 }}
               >
-                {section.label} · {section.books.length}
+                <span className="section-label">{section.label}</span>
+                <span className="section-count">{section.books.length}</span>
               </button>
               {open ? (
-                <>
+                <div className="section-body">
                   <div className="grid">
                     {books.map((book) => (
                       <BookCard book={book} key={book.bookId} />
                     ))}
                   </div>
                   {section.books.length > books.length ? (
-                    <button type="button" className="more" onClick={() => setVisibleCount((count) => count + 48)}>
-                      再显示 {Math.min(48, section.books.length - books.length)} 本
+                    <button type="button" className="btn-text" onClick={() => setVisibleCount((count) => count + 48)}>
+                      继续浏览 · 还有 {section.books.length - books.length} 本
                     </button>
                   ) : null}
-                </>
+                </div>
               ) : null}
             </section>
           )
@@ -322,7 +357,15 @@ function Shelf({ libraryVersion }: { libraryVersion: number }) {
   )
 }
 
-function BookPage({ bookId, libraryVersion }: { bookId: string; libraryVersion: number }) {
+function BookPage({
+  bookId,
+  libraryVersion,
+  onBack,
+}: {
+  bookId: string
+  libraryVersion: number
+  onBack: () => void
+}) {
   const [book, setBook] = useState<BookDetail | null>(null)
   const [error, setError] = useState('')
 
@@ -331,34 +374,51 @@ function BookPage({ bookId, libraryVersion }: { bookId: string; libraryVersion: 
   }, [bookId, libraryVersion])
 
   if (error) return <p className="error">{error}</p>
-  if (!book) return <p className="muted">正在打开这本书。</p>
+  if (!book) return <p className="state-message">正在打开这本书…</p>
   return (
-    <article>
+    <article className="book-page">
+      <a
+        className="book-back"
+        href="/"
+        onClick={(event) => {
+          event.preventDefault()
+          onBack()
+        }}
+      >
+        返回书架
+      </a>
       <header className="book-head">
         {book.cover ? <img src={book.cover} alt="" /> : <div className="book-cover" />}
         <div>
           <h1>{book.title || '未命名'}</h1>
           <p className="meta">{book.author}</p>
           <div className="stats">
-            <span>进度 {formatProgress(book.progress, book.finishReading)}</span>
-            <span>阅读 {formatDuration(book.readingTimeSeconds)}</span>
-            <span>划线 {book.highlightCount}</span>
+            <span>{formatProgress(book.progress, book.finishReading)}</span>
+            <span>{formatDuration(book.readingTimeSeconds)}</span>
+            <span>{book.highlightCount} 条划线</span>
           </div>
-          <p><a className="weread-link" href={book.wereadUrl} target="_blank" rel="noreferrer">在微信读书打开</a></p>
-          {book.onShelf ? null : <p className="muted">这本书当前不在书架上，划线仍保留。</p>}
+          <p className="book-actions">
+            <a className="weread-link" href={book.wereadUrl} target="_blank" rel="noreferrer">在微信读书继续读</a>
+          </p>
+          {book.onShelf ? null : <p className="muted book-aside">不在书架上，划线仍保留。</p>}
         </div>
       </header>
-      {book.chapters.length === 0 ? <p>这本书还没有划线。</p> : null}
-      {book.chapters.map((chapter) => (
-        <section className="chapter" key={chapter.chapterUid}>
-          <h2>{chapter.title}</h2>
-          {chapter.highlights.map((highlight) => (
-            <blockquote className="highlight" key={highlight.bookmarkId}>
-              <p>{highlight.markText}</p>
-            </blockquote>
+      {book.chapters.length === 0 ? (
+        <p className="state-message">这本书还没有划线。</p>
+      ) : (
+        <div className="reading-body">
+          {book.chapters.map((chapter) => (
+            <section className="chapter" key={chapter.chapterUid}>
+              <h2>{chapter.title}</h2>
+              {chapter.highlights.map((highlight) => (
+                <blockquote className="highlight" key={highlight.bookmarkId}>
+                  <p>{highlight.markText}</p>
+                </blockquote>
+              ))}
+            </section>
           ))}
-        </section>
-      ))}
+        </div>
+      )}
     </article>
   )
 }

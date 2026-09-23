@@ -79,7 +79,7 @@ describe('书架视图', () => {
     expect(sections.map((section) => section.label)).toEqual(['在读', '未读'])
   })
 
-  it('超过 100 本的分组才随机排列', () => {
+  it('每个分组都会随机排列', () => {
     const many = Array.from({ length: 120 }, (_, index) =>
       book({ bookId: `b${index}`, title: `书${index}`, readUpdateTime: index }),
     )
@@ -93,7 +93,7 @@ describe('书架视图', () => {
     )
     expect(shuffled[0]?.books).not.toEqual(many)
     expect(shuffled[0]?.books).toHaveLength(120)
-    expect(shuffled[1]?.books.map((item) => item.bookId)).toEqual(['a'])
+    expect(shuffled[1]?.books).toEqual(few)
   })
 
   it('相同 seed 得到稳定顺序', () => {

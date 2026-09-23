@@ -66,8 +66,8 @@ export function SurpriseToolbar({
             <strong>惊喜模式</strong>
             <span className="surprise-hint">
               {active
-                ? '大分组已随机排列，排位靠后的书也会露面'
-                : '书架太深？打开后超过 100 本的分组会随机展示'}
+                ? '每个分组都已轻轻打乱，深处的书也会露面'
+                : '打开后，每个分组都会随机展示'}
             </span>
           </span>
           <span className="surprise-switch" aria-hidden="true">
@@ -81,7 +81,7 @@ export function SurpriseToolbar({
           </span>
           <p>
             <strong>惊喜模式已开启</strong>
-            <span>大分组随机排列，去邂逅一本久违的书吧</span>
+            <span>慢慢翻，也许会遇见一本久违的书</span>
           </p>
         </div>
       )}

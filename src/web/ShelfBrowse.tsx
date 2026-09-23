@@ -174,8 +174,8 @@ export function ShelfBrowse({
             )}
 
             {visibleBooks.length > shown.length ? (
-              <button type="button" className="more" onClick={() => setVisibleCount((count) => count + 36)}>
-                再显示 {Math.min(36, visibleBooks.length - shown.length)} 本
+              <button type="button" className="btn-text" onClick={() => setVisibleCount((count) => count + 36)}>
+                继续浏览 · 还有 {visibleBooks.length - shown.length} 本
               </button>
             ) : null}
           </>
