@@ -269,7 +269,7 @@ function Shelf({ libraryVersion }: { libraryVersion: number }) {
               })
             }}
           >
-            随机顺序
+            惊喜模式
           </button>
         ) : null}
         {shuffleOn ? (
@@ -277,7 +277,7 @@ function Shelf({ libraryVersion }: { libraryVersion: number }) {
             <button type="button" className="filter-chip" onClick={() => setShuffleSeed(Date.now())}>
               换一个顺序
             </button>
-            <p className="muted shelf-toolbar-note">超过 100 本的分组会随机排列，排位靠后的书也有机会出现。</p>
+            <p className="muted shelf-toolbar-note">惊喜模式下，超过 100 本的分组会随机排列，排位靠后的书也有机会出现。</p>
           </>
         ) : null}
       </div>
