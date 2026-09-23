@@ -15,7 +15,8 @@
   --radius-sm: 10px;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Songti SC", "Noto Serif SC", serif;
-  --font-sans: "Avenir Next", "PingFang SC", "Helvetica Neue", sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
   --content-width: 68rem;
   --reading-width: 40rem;
   color: var(--ink);
@@ -75,10 +76,26 @@ input:focus-visible {
   backdrop-filter: blur(10px);
 }
 
+.topbar-shelf {
+  position: static;
+  margin-bottom: 0;
+  padding-top: 8px;
+  padding-bottom: 18px;
+  background: transparent;
+  backdrop-filter: none;
+}
+
 .brand {
   font-size: 1.35rem;
   font-weight: 500;
   letter-spacing: 0.06em;
+}
+
+.topbar-shelf .brand {
+  font-family: var(--font-display);
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 .app-book .brand {
@@ -89,6 +106,37 @@ input:focus-visible {
   display: flex;
   gap: 6px;
   align-items: center;
+}
+
+.nav-minimal {
+  gap: 2px;
+}
+
+.nav-text {
+  border: 0;
+  background: transparent;
+  color: var(--ink-muted);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-family: var(--font-sans);
+  font-size: 0.9375rem;
+  font-weight: 400;
+  cursor: pointer;
+  transition: color 0.2s var(--ease), background 0.2s var(--ease);
+}
+
+a.nav-text {
+  display: inline-block;
+}
+
+.nav-text:hover:not(:disabled) {
+  color: var(--ink);
+  background: rgba(255, 250, 243, 0.55);
+}
+
+.nav-text:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .nav button, .nav a, .primary {
@@ -171,19 +219,53 @@ button:disabled {
 }
 
 .shelf-intro {
-  margin-bottom: 28px;
+  margin: 0 0 36px;
+  padding: 0 0 32px;
+  border-bottom: 1px solid rgba(232, 221, 208, 0.65);
 }
 
-.shelf-count {
-  margin: 0;
-  font-size: 1.75rem;
+.shelf-eyebrow {
+  margin: 0 0 10px;
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
   font-weight: 500;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.shelf-headline {
+  margin: 0;
+  font-weight: inherit;
+}
+
+.shelf-count-num {
+  display: block;
+  font-family: var(--font-display);
+  font-size: clamp(2.75rem, 7vw, 3.5rem);
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  line-height: 1.02;
+  color: var(--ink);
+}
+
+.shelf-count-label {
+  display: block;
+  margin-top: 6px;
+  font-family: var(--font-sans);
+  font-size: 1.0625rem;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  color: var(--ink-soft);
 }
 
 .shelf-lede {
-  margin: 6px 0 0;
-  font-size: 0.9375rem;
+  margin: 14px 0 0;
+  max-width: 28rem;
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--ink-muted);
 }
 
 .year,
@@ -755,24 +837,10 @@ button:disabled {
   padding: 8px 14px;
 }
 
-.btn-text {
-  display: block;
+.load-sentinel {
   width: 100%;
-  margin: 28px 0 12px;
-  padding: 12px 0;
-  border: 0;
-  border-top: 1px solid var(--surface-border);
-  background: transparent;
-  color: var(--ink-muted);
-  font-family: var(--font-sans);
-  font-size: 0.875rem;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  transition: color 0.25s var(--ease);
-}
-
-.btn-text:hover {
-  color: var(--accent-deep);
+  height: 1px;
+  margin-top: 24px;
 }
 
 .grid {

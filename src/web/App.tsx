@@ -3,6 +3,7 @@ import { getBook, getBooks, getKeyStatus, getSync, saveKey, startSync } from './
 import { formatDuration, formatProgress } from './format'
 import { BookCard } from './BookCard'
 import { ShelfBrowse } from './ShelfBrowse'
+import { LoadMoreSentinel } from './LoadMoreSentinel'
 import { SurpriseToolbar } from './SurpriseToolbar'
 import { applyRandomOrder, buildShelfSections, type ShelfMode } from './shelf-views'
 import type { BookDetail, BooksResponse, SyncStatus } from '../shared/types'
@@ -79,21 +80,21 @@ export function App() {
 
   return (
     <div className={`app app-${route.name}`}>
-      <header className="topbar">
+      <header className={onShelf ? 'topbar topbar-shelf' : 'topbar'}>
         <a className="brand" href="/" onClick={(event) => { event.preventDefault(); go('/') }}>阅读生活</a>
-        <nav className="nav">
+        <nav className={onShelf ? 'nav nav-minimal' : 'nav'}>
           {onShelf ? (
             <>
-              <button type="button" className="nav-quiet" onClick={() => void syncNow(false)} disabled={sync?.running}>
+              <button type="button" className="nav-text" onClick={() => void syncNow(false)} disabled={sync?.running}>
                 {sync?.running ? '同步中…' : '同步'}
               </button>
-              <button type="button" className="nav-quiet" onClick={() => void syncNow(true)} disabled={sync?.running}>
+              <button type="button" className="nav-text" onClick={() => void syncNow(true)} disabled={sync?.running}>
                 强制同步
               </button>
             </>
           ) : null}
           <a
-            className={onBook ? 'nav-quiet' : undefined}
+            className={onShelf || onBook ? 'nav-text' : undefined}
             href="/settings"
             onClick={(event) => { event.preventDefault(); go('/settings') }}
           >
@@ -265,15 +266,15 @@ function Shelf({ libraryVersion }: { libraryVersion: number }) {
     : shuffleOn
       ? applyRandomOrder(baseSections, shuffleSeed)
       : baseSections
-  const selected = sections.some((section) => section.key === openSection)
-    ? openSection
-    : (sections[0]?.key ?? null)
-
   return (
     <div className="shelf">
       <header className="shelf-intro">
-        <p className="shelf-count">{data.books.length} 本书在架上</p>
-        <p className="shelf-lede muted">按自己的节奏浏览，不必一次看完。</p>
+        <p className="shelf-eyebrow">我的书架</p>
+        <h1 className="shelf-headline">
+          <span className="shelf-count-num">{data.books.length.toLocaleString('zh-CN')}</span>
+          <span className="shelf-count-label">本书在架上</span>
+        </h1>
+        <p className="shelf-lede">按自己的节奏浏览，不必一次看完。</p>
       </header>
 
       <div className="shelf-modes" role="tablist" aria-label="浏览方式">
@@ -315,7 +316,7 @@ function Shelf({ libraryVersion }: { libraryVersion: number }) {
         />
       ) : (
         sections.map((section) => {
-          const open = section.key === selected
+          const open = section.key === openSection
           const books = open ? section.books.slice(0, visibleCount) : []
           return (
             <section key={section.key} className={open ? 'shelf-section open' : 'shelf-section'}>
@@ -338,11 +339,10 @@ function Shelf({ libraryVersion }: { libraryVersion: number }) {
                       <BookCard book={book} key={book.bookId} />
                     ))}
                   </div>
-                  {section.books.length > books.length ? (
-                    <button type="button" className="btn-text" onClick={() => setVisibleCount((count) => count + 48)}>
-                      继续浏览 · 还有 {section.books.length - books.length} 本
-                    </button>
-                  ) : null}
+                  <LoadMoreSentinel
+                    hasMore={section.books.length > books.length}
+                    onLoadMore={() => setVisibleCount((count) => count + 48)}
+                  />
                 </div>
               ) : null}
             </section>

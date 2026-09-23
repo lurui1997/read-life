@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { BookCard } from './BookCard'
+import { LoadMoreSentinel } from './LoadMoreSentinel'
 import { applyRandomOrder, type ShelfSection } from './shelf-views'
 
 type BrowseVariant = 'archive' | 'category'
@@ -173,11 +174,10 @@ export function ShelfBrowse({
               </div>
             )}
 
-            {visibleBooks.length > shown.length ? (
-              <button type="button" className="btn-text" onClick={() => setVisibleCount((count) => count + 36)}>
-                继续浏览 · 还有 {visibleBooks.length - shown.length} 本
-              </button>
-            ) : null}
+            <LoadMoreSentinel
+              hasMore={visibleBooks.length > shown.length}
+              onLoadMore={() => setVisibleCount((count) => count + 36)}
+            />
           </>
         ) : null}
       </section>
