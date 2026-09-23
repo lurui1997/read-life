@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { getBook, getBooks, getKeyStatus, getSync, saveKey, startSync } from './api'
 import { formatDuration, formatProgress } from './format'
+import { groupBooks } from '../server/shelf'
 import type { BookDetail, BooksResponse, SyncStatus } from '../shared/types'
 
 type Route =
@@ -22,7 +23,6 @@ export function App() {
   const [libraryVersion, setLibraryVersion] = useState(0)
   const wasRunning = useRef(false)
   const shelfVisible = useRef(false)
-  const refreshedAt = useRef(0)
 
   useEffect(() => {
     const onPop = () => setRoute(readRoute())
@@ -40,13 +40,8 @@ export function App() {
         shelfVisible.current = true
         setLibraryVersion((version) => version + 1)
       }
-      if (status.running && status.done - refreshedAt.current >= 40) {
-        refreshedAt.current = status.done
-        setLibraryVersion((version) => version + 1)
-      }
       if (wasRunning.current && !status.running) {
         shelfVisible.current = false
-        refreshedAt.current = 0
         setLibraryVersion((version) => version + 1)
       }
       wasRunning.current = status.running
@@ -113,39 +108,104 @@ function SyncBanner({ status }: { status: SyncStatus | null }) {
   )
 }
 
+const shelfCacheKey = 'read-life.shelf'
+
+function readShelfCache(): BooksResponse | null {
+  try {
+    const raw = localStorage.getItem(shelfCacheKey)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as BooksResponse
+    if (!Array.isArray(parsed.groups)) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function writeShelfCache(data: BooksResponse) {
+  try {
+    localStorage.setItem(shelfCacheKey, JSON.stringify(data))
+  } catch {
+    localStorage.removeItem(shelfCacheKey)
+  }
+}
+
 function Shelf({ libraryVersion }: { libraryVersion: number }) {
-  const [data, setData] = useState<BooksResponse | null>(null)
+  const [data, setData] = useState<BooksResponse | null>(readShelfCache)
   const [error, setError] = useState('')
+  const [openYear, setOpenYear] = useState<string | null>(null)
+  const [visibleCount, setVisibleCount] = useState(48)
 
   useEffect(() => {
-    void getBooks().then(setData).catch((reason: Error) => setError(reason.message))
+    let stop = false
+    void getBooks()
+      .then((next) => {
+        if (stop) return
+        setData(next)
+        setError('')
+        writeShelfCache(next)
+      })
+      .catch((reason: Error) => {
+        if (!stop) setError(reason.message)
+      })
+    return () => {
+      stop = true
+    }
   }, [libraryVersion])
 
-  if (error) return <p className="error">{error}</p>
-  if (!data) return <p className="muted">正在读取书架。</p>
-  if (data.groups.length === 0) return <p>书架还是空的。先在设置里保存 API Key，再同步。</p>
+  if (!data) {
+    if (error) return <p className="error">{error}</p>
+    return <p className="muted">正在读取书架。</p>
+  }
+  const groups = groupBooks(data.groups.flatMap((group) => group.books)).groups
+  if (groups.length === 0) return <p>书架还是空的。先在设置里保存 API Key，再同步。</p>
+  const selected = groups.some((group) => group.year === openYear)
+    ? openYear
+    : (groups.find((group) => group.year !== '未知')?.year ?? groups[0]?.year)
   return (
     <div>
-      {data.groups.map((group) => (
-        <section key={group.year}>
-          <h2 className="year">{group.year === '未知' ? '未知' : `${group.year} 年`}</h2>
-          <div className="grid">
-            {group.books.map((book) => (
-              <article className="card" key={book.bookId}>
-                <a href={`/book/${encodeURIComponent(book.bookId)}`}>
-                  {book.cover ? <img src={book.cover} alt="" /> : <div className="cover-fallback" />}
-                </a>
-                <div>
-                  <h2><a href={`/book/${encodeURIComponent(book.bookId)}`}>{book.title || '未命名'}</a></h2>
-                  <p className="meta">{book.author}</p>
-                  <p className="meta">进度 {formatProgress(book.progress)} · 划线 {book.highlightCount}</p>
-                  <a className="weread-link" href={book.wereadUrl} target="_blank" rel="noreferrer">微信读书</a>
+      {groups.map((group) => {
+        const open = group.year === selected
+        const books = open ? group.books.slice(0, visibleCount) : []
+        return (
+          <section key={group.year}>
+            <button
+              type="button"
+              className={open ? 'year open' : 'year'}
+              onClick={() => {
+                setOpenYear(group.year)
+                setVisibleCount(48)
+              }}
+            >
+              {group.year === '未知' ? '未知' : `${group.year} 年`} · {group.books.length}
+            </button>
+            {open ? (
+              <>
+                <div className="grid">
+                  {books.map((book) => (
+                    <article className="card" key={book.bookId}>
+                      <a href={`/book/${encodeURIComponent(book.bookId)}`}>
+                        {book.cover ? <img src={book.cover} alt="" loading="lazy" /> : <div className="cover-fallback" />}
+                      </a>
+                      <div>
+                        <h2><a href={`/book/${encodeURIComponent(book.bookId)}`}>{book.title || '未命名'}</a></h2>
+                        <p className="meta">{book.author}</p>
+                        <p className="meta">进度 {formatProgress(book.progress)} · 划线 {book.highlightCount}</p>
+                        <a className="weread-link" href={book.wereadUrl} target="_blank" rel="noreferrer">微信读书</a>
+                      </div>
+                    </article>
+                  ))}
                 </div>
-              </article>
-            ))}
-          </div>
-        </section>
-      ))}
+                {group.books.length > books.length ? (
+                  <button type="button" className="more" onClick={() => setVisibleCount((count) => count + 48)}>
+                    再显示 {Math.min(48, group.books.length - books.length)} 本
+                  </button>
+                ) : null}
+              </>
+            ) : null}
+          </section>
+        )
+      })}
     </div>
   )
 }

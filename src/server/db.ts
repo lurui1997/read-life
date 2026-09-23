@@ -134,6 +134,7 @@ export function openDatabase(filePath: string): AppDatabase {
       mark_text TEXT NOT NULL,
       range TEXT
     );
+    CREATE INDEX IF NOT EXISTS highlights_book_id ON highlights (book_id);
     CREATE TABLE IF NOT EXISTS sync_runs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       started_at TEXT NOT NULL,

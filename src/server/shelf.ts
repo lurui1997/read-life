@@ -4,7 +4,7 @@ export function groupBooks(books: BookSummary[]): BooksResponse {
   const dated = new Map<number, BookSummary[]>()
   const unknown: BookSummary[] = []
   for (const book of books) {
-    if (book.readUpdateTime == null) {
+    if (book.readUpdateTime == null || book.readUpdateTime <= 0) {
       unknown.push(book)
       continue
     }

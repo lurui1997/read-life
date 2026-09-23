@@ -119,6 +119,21 @@ describe('网页接口', () => {
     const grouped = groupBooks(db.listOnShelf())
     expect(grouped.groups.map((group) => group.year)).toEqual(['2026', '2024', '未知'])
     expect(grouped.groups[0]?.books.map((book) => book.bookId)).toEqual(['new', 'new-early'])
+    const zeroTime = groupBooks([
+      {
+        bookId: 'zero',
+        title: '没有时间',
+        author: '',
+        cover: '',
+        readUpdateTime: 0,
+        progress: null,
+        readingTimeSeconds: null,
+        highlightCount: 0,
+        wereadUrl: 'https://weread.qq.com/web/reader/zero',
+      },
+      ...(grouped.groups[0]?.books ?? []),
+    ])
+    expect(zeroTime.groups.map((group) => group.year)).toEqual(['2026', '未知'])
 
     db.markAbsentOffShelf(['old'])
     expect(db.listOnShelf().map((book) => book.bookId)).toEqual(['old'])

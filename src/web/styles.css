@@ -88,11 +88,22 @@ button:disabled {
 }
 
 .year {
+  display: block;
   margin: 28px 0 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   font-size: 14px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+  cursor: pointer;
 }
+
+.year.open { color: #1f4d3a; }
+
+.more { margin-top: 12px; }
 
 .grid {
   display: grid;
