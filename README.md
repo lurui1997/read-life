@@ -173,24 +173,13 @@ Key 写入 `data/read-life.sqlite`，不上传任何第三方。
 
 ## 架构
 
-```mermaid
-flowchart LR
-  browser["浏览器"]
-  api["Hono API"]
-  syncEngine["同步引擎"]
-  db[("SQLite")]
-  weread["微信读书 Gateway"]
-  webCache["localStorage 书架缓存"]
+<div align="center">
 
-  browser --> api
-  api --> syncEngine
-  api --> db
-  syncEngine --> weread
-  syncEngine --> db
-  browser --> webCache
-```
+![架构示意：浏览器 → Hono API → 同步引擎 / SQLite → 微信读书 Gateway](docs/architecture.svg)
 
-```
+</div>
+
+```text
 read-life/
 ├── src/server/    # API、同步、数据库
 ├── src/web/       # React 书架 · 书页 · 导览
