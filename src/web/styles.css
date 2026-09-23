@@ -66,6 +66,10 @@ button:disabled {
 }
 
 .banner {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
   background: #fffaf3;
   border: 1px solid #d9cbb6;
   border-radius: 16px;
@@ -73,7 +77,15 @@ button:disabled {
   margin-bottom: 18px;
 }
 
-.banner strong { display: block; }
+.banner p { margin: 0; }
+
+.banner-close {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  white-space: nowrap;
+}
 
 .year {
   margin: 28px 0 12px;
@@ -113,11 +125,13 @@ button:disabled {
   font-weight: 600;
 }
 
-.meta, .muted {
+.meta, .muted, .weread-link {
   color: #5e564c;
   font-family: "Avenir Next", "PingFang SC", sans-serif;
   font-size: 14px;
 }
+
+.weread-link { text-decoration: underline; }
 
 .book-head {
   display: grid;

@@ -23,24 +23,30 @@ type ChapterDraft = {
   title: string
 }
 
+const SYNC_CONCURRENCY = 8
+
 export async function runSync(
   db: AppDatabase,
   client: WereadClient,
-  options: { force: boolean },
+  options: { force: boolean; onProgress?: (done: number, total: number) => void },
 ): Promise<SyncRecord> {
   const startedAt = new Date().toISOString()
   try {
     const shelf = await fetchShelf(client)
     const noteCounts = await fetchNoteCounts(client)
     applyShelf(db, shelf)
+    options.onProgress?.(0, shelf.length)
     const tally = { updated: 0, skipped: 0, failed: 0, errors: [] as SyncRecord['errors'] }
-    for (const book of shelf) {
+    let done = 0
+    await eachBook(shelf, async (book) => {
       const outcome = await syncOneBook(db, client, book, noteCounts.get(book.bookId) ?? 0, options.force)
       tally.errors.push(...outcome.errors)
       if (outcome.failed) tally.failed += 1
       else if (outcome.wrote) tally.updated += 1
       else tally.skipped += 1
-    }
+      done += 1
+      options.onProgress?.(done, shelf.length)
+    })
     const record: SyncRecord = {
       startedAt,
       finishedAt: new Date().toISOString(),
@@ -107,17 +113,18 @@ async function syncProgress(
 ): Promise<'skip' | 'write' | 'fail'> {
   if (!force && sameClock(book.readUpdateTime, cursor)) return 'skip'
   try {
-    const data = (await client.call('/book/getprogress', { bookId: book.bookId })) as {
-      book?: { progress?: unknown; readingTime?: unknown }
+    const data = (await callWithRetry(() => client.call('/book/getprogress', { bookId: book.bookId }))) as {
+      book?: { progress?: unknown; readingTime?: unknown; recordReadingTime?: unknown }
     }
-    const progress = data.book?.progress
-    const readingTime = data.book?.readingTime
-    if (typeof progress !== 'number' || typeof readingTime !== 'number') {
-      throw new WereadError('进度响应缺少 book.progress 或 book.readingTime')
-    }
+    const progress = typeof data.book?.progress === 'number' ? Math.round(data.book.progress) : 0
+    const readingTime = typeof data.book?.readingTime === 'number'
+      ? Math.round(data.book.readingTime)
+      : typeof data.book?.recordReadingTime === 'number'
+        ? Math.round(data.book.recordReadingTime)
+        : 0
     const nextCursor: ProgressCursor =
       book.readUpdateTime == null ? { kind: 'missing' } : { kind: 'time', time: book.readUpdateTime }
-    db.setProgress(book.bookId, Math.round(progress), Math.round(readingTime), nextCursor)
+    db.setProgress(book.bookId, progress, readingTime, nextCursor)
     return 'write'
   } catch {
     return 'fail'
@@ -134,9 +141,14 @@ async function syncHighlights(
 ): Promise<'skip' | 'write' | 'fail'> {
   const synced = stored?.highlightsSynced ?? false
   const savedNoteCount = stored?.savedNoteCount ?? 0
+  if (noteCount === 0 && savedNoteCount === 0) {
+    if (synced) return 'skip'
+    db.replaceHighlights(bookId, 0, [], [])
+    return 'write'
+  }
   if (!force && synced && savedNoteCount === noteCount) return 'skip'
   try {
-    const data = (await client.call('/book/bookmarklist', { bookId })) as {
+    const data = (await callWithRetry(() => client.call('/book/bookmarklist', { bookId }))) as {
       updated?: unknown
       chapters?: unknown
     }
@@ -155,6 +167,35 @@ async function syncHighlights(
   } catch {
     return 'fail'
   }
+}
+
+async function callWithRetry(request: () => Promise<unknown>, attempts = 3): Promise<unknown> {
+  let lastError: unknown
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await request()
+    } catch (error) {
+      lastError = error
+      if (attempt < attempts - 1) await delay(400 * (attempt + 1))
+    }
+  }
+  throw lastError
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function eachBook(books: ShelfBook[], worker: (book: ShelfBook) => Promise<void>) {
+  let index = 0
+  const runners = Array.from({ length: Math.min(SYNC_CONCURRENCY, books.length) }, async () => {
+    while (index < books.length) {
+      const current = books[index]
+      index += 1
+      await worker(current)
+    }
+  })
+  await Promise.all(runners)
 }
 
 function sameClock(incoming: number | null, cursor: ProgressCursor): boolean {

@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import Database from 'better-sqlite3'
 import type { BookDetail, BookSummary, Highlight, SyncRecord } from '../shared/types'
+import { wereadReaderUrl } from './weread-url'
 
 export type ProgressCursor =
   | { kind: 'never' }
@@ -249,6 +250,7 @@ export function openDatabase(filePath: string): AppDatabase {
         progress: row.progress,
         readingTimeSeconds: row.reading_time_seconds,
         highlightCount: row.highlight_count,
+        wereadUrl: wereadReaderUrl(row.book_id),
       }))
     },
     getBookDetail(bookId: string) {
@@ -292,6 +294,7 @@ export function openDatabase(filePath: string): AppDatabase {
         progress: row.progress,
         readingTimeSeconds: row.reading_time_seconds,
         highlightCount: row.highlight_count,
+        wereadUrl: wereadReaderUrl(row.book_id),
         chapters: detailChapters,
       }
     },

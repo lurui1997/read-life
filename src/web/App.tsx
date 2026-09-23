@@ -21,6 +21,8 @@ export function App() {
   const [notice, setNotice] = useState('')
   const [libraryVersion, setLibraryVersion] = useState(0)
   const wasRunning = useRef(false)
+  const shelfVisible = useRef(false)
+  const refreshedAt = useRef(0)
 
   useEffect(() => {
     const onPop = () => setRoute(readRoute())
@@ -34,7 +36,19 @@ export function App() {
       const status = await getSync()
       if (stop) return
       setSync(status)
-      if (wasRunning.current && !status.running) setLibraryVersion((version) => version + 1)
+      if (status.running && status.total > 0 && !shelfVisible.current) {
+        shelfVisible.current = true
+        setLibraryVersion((version) => version + 1)
+      }
+      if (status.running && status.done - refreshedAt.current >= 40) {
+        refreshedAt.current = status.done
+        setLibraryVersion((version) => version + 1)
+      }
+      if (wasRunning.current && !status.running) {
+        shelfVisible.current = false
+        refreshedAt.current = 0
+        setLibraryVersion((version) => version + 1)
+      }
       wasRunning.current = status.running
     }
     void poll()
@@ -80,14 +94,21 @@ export function App() {
 }
 
 function SyncBanner({ status }: { status: SyncStatus | null }) {
+  const [hiddenFinishedAt, setHiddenFinishedAt] = useState<string | null>(null)
   if (!status) return null
-  if (status.running) return <div className="banner">正在同步书架、划线和进度。</div>
-  if (!status.last) return null
-  if (status.last.message) return <div className="banner"><strong>这次同步没有写入书架</strong>{status.last.message}</div>
+  if (status.running) {
+    const progress = status.total > 0 ? ` ${status.done} / ${status.total}` : ''
+    return <div className="banner">正在同步书架、划线和进度{progress}。失败的书会自动再试。</div>
+  }
+  if (!status.last || hiddenFinishedAt === status.last.finishedAt) return null
   return (
     <div className="banner">
-      书架 {status.last.shelfCount} 本，更新 {status.last.updated}，跳过 {status.last.skipped}，失败 {status.last.failed}
-      {status.last.errors.length > 0 ? <span className="muted">。{status.last.errors.map((error) => `${error.bookId} ${error.message}`).join('；')}</span> : null}
+      <p>
+        书架 {status.last.shelfCount} 本，更新 {status.last.updated}，跳过 {status.last.skipped}，失败 {status.last.failed}
+        {status.last.message ? `。${status.last.message}` : ''}
+        {status.last.failed > 0 ? '。失败的书会在下一次同步时自动再试。' : ''}
+      </p>
+      <button type="button" className="banner-close" onClick={() => setHiddenFinishedAt(status.last?.finishedAt ?? null)}>关闭</button>
     </div>
   )
 }
@@ -110,14 +131,17 @@ function Shelf({ libraryVersion }: { libraryVersion: number }) {
           <h2 className="year">{group.year === '未知' ? '未知' : `${group.year} 年`}</h2>
           <div className="grid">
             {group.books.map((book) => (
-              <a className="card" key={book.bookId} href={`/book/${encodeURIComponent(book.bookId)}`}>
-                {book.cover ? <img src={book.cover} alt="" /> : <div className="cover-fallback" />}
+              <article className="card" key={book.bookId}>
+                <a href={`/book/${encodeURIComponent(book.bookId)}`}>
+                  {book.cover ? <img src={book.cover} alt="" /> : <div className="cover-fallback" />}
+                </a>
                 <div>
-                  <h2>{book.title || '未命名'}</h2>
+                  <h2><a href={`/book/${encodeURIComponent(book.bookId)}`}>{book.title || '未命名'}</a></h2>
                   <p className="meta">{book.author}</p>
                   <p className="meta">进度 {formatProgress(book.progress)} · 划线 {book.highlightCount}</p>
+                  <a className="weread-link" href={book.wereadUrl} target="_blank" rel="noreferrer">微信读书</a>
                 </div>
-              </a>
+              </article>
             ))}
           </div>
         </section>
@@ -148,6 +172,7 @@ function BookPage({ bookId, libraryVersion }: { bookId: string; libraryVersion: 
             <span>阅读 {formatDuration(book.readingTimeSeconds)}</span>
             <span>划线 {book.highlightCount}</span>
           </div>
+          <p><a className="weread-link" href={book.wereadUrl} target="_blank" rel="noreferrer">在微信读书打开</a></p>
           {book.onShelf ? null : <p className="muted">这本书当前不在书架上，划线仍保留。</p>}
         </div>
       </header>

@@ -17,6 +17,8 @@ export type SyncRecord = {
 export type SyncStatus = {
   running: boolean
   last: SyncRecord | null
+  done: number
+  total: number
 }
 
 export type BookSummary = {
@@ -28,6 +30,7 @@ export type BookSummary = {
   progress: number | null
   readingTimeSeconds: number | null
   highlightCount: number
+  wereadUrl: string
 }
 
 export type BooksResponse = {
@@ -59,5 +62,6 @@ export type BookDetail = {
   progress: number | null
   readingTimeSeconds: number | null
   highlightCount: number
+  wereadUrl: string
   chapters: Chapter[]
 }

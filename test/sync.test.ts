@@ -36,6 +36,16 @@ describe('同步', () => {
     db.close()
   })
 
+  it('没有划线的书不请求划线列表', async () => {
+    const db = tempDb()
+    const client = library({ notes: [{ bookId: '695233', noteCount: 0, sort: 1 }] })
+    await runSync(db, client, { force: false })
+    expect(client.calls.map((call) => call.apiName)).not.toContain('/book/bookmarklist')
+    expect(db.getBook('695233')?.highlightsSynced).toBe(true)
+    expect(db.getBookDetail('695233')?.highlightCount).toBe(0)
+    db.close()
+  })
+
   it('划线数变化时整本替换，从有到 0 会清空', async () => {
     const db = tempDb()
     await runSync(db, library({ notes: [{ bookId: '695233', noteCount: 1, sort: 1 }] }), { force: false })
@@ -294,6 +304,41 @@ describe('同步', () => {
     await runSync(db, client, { force: false })
     expect(client.calls.filter((call) => call.apiName === '/user/notebooks').map((call) => call.params.lastSort)).toEqual([undefined, 11])
     expect(db.getBook('p2')?.savedNoteCount).toBe(4)
+    db.close()
+  })
+
+  it('进度响应没有 progress 时记为 0，不算失败', async () => {
+    const db = tempDb()
+    const record = await runSync(
+      db,
+      library({
+        onProgress: () => ({ book: { recordReadingTime: 0 } }),
+      }),
+      { force: false },
+    )
+    expect(record.failed).toBe(0)
+    expect(db.getBook('695233')?.progress).toBe(0)
+    expect(db.getBook('695233')?.readingTimeSeconds).toBe(0)
+    db.close()
+  })
+
+  it('进度请求失败会再试，第三次成功则不算失败', async () => {
+    const db = tempDb()
+    let attempts = 0
+    const record = await runSync(
+      db,
+      library({
+        onProgress: () => {
+          attempts += 1
+          if (attempts < 3) throw new Error('timeout')
+          return progress(4, 40)
+        },
+      }),
+      { force: false },
+    )
+    expect(attempts).toBe(3)
+    expect(record.failed).toBe(0)
+    expect(db.getBook('695233')?.progress).toBe(4)
     db.close()
   })
 })

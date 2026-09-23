@@ -13,9 +13,17 @@ export type AppOptions = {
 export function createApp(options: AppOptions) {
   const { db, createClient } = options
   let running = false
+  let done = 0
+  let total = 0
 
   function status(): SyncStatus {
-    return { running, last: db.latestSync() }
+    const last = db.latestSync()
+    return {
+      running,
+      done,
+      total,
+      last: last ? { ...last, errors: last.errors.slice(0, 3) } : null,
+    }
   }
 
   function startSync(force: boolean): SyncStatus | { error: string } {
@@ -24,9 +32,34 @@ export function createApp(options: AppOptions) {
     const apiKey = db.getApiKey()
     if (!apiKey) return { error: '尚未配置 API Key' }
     running = true
-    void runSync(db, createClient(apiKey), { force }).finally(() => {
-      running = false
-    })
+    done = 0
+    total = 0
+    const client = createClient(apiKey)
+    void (async () => {
+      try {
+        const first = await runSync(db, client, {
+          force,
+          onProgress(nextDone, nextTotal) {
+            done = nextDone
+            total = nextTotal
+          },
+        })
+        if (first.failed > 0) {
+          done = 0
+          await runSync(db, client, {
+            force: false,
+            onProgress(nextDone, nextTotal) {
+              done = nextDone
+              total = nextTotal
+            },
+          })
+        }
+      } finally {
+        running = false
+        done = 0
+        total = 0
+      }
+    })()
     return status()
   }
 
