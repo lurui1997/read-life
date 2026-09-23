@@ -3,6 +3,7 @@ import { getBook, getBooks, getKeyStatus, getSync, saveKey, startSync } from './
 import { formatDuration, formatProgress } from './format'
 import { BookCard } from './BookCard'
 import { ShelfBrowse } from './ShelfBrowse'
+import { FeatureShowcase, readShowcaseDismissed } from './FeatureShowcase'
 import { LoadMoreSentinel } from './LoadMoreSentinel'
 import { SurpriseToolbar } from './SurpriseToolbar'
 import { applyRandomOrder, buildShelfSections, type ShelfMode } from './shelf-views'
@@ -218,6 +219,7 @@ function Shelf({ libraryVersion }: { libraryVersion: number }) {
   const [visibleCount, setVisibleCount] = useState(48)
   const [randomOrder, setRandomOrder] = useState(readRandomOrder)
   const [shuffleSeed, setShuffleSeed] = useState(() => Date.now())
+  const [showcaseVisible, setShowcaseVisible] = useState(() => !readShowcaseDismissed())
 
   useEffect(() => {
     let stop = false
@@ -275,7 +277,22 @@ function Shelf({ libraryVersion }: { libraryVersion: number }) {
           <span className="shelf-count-label">本书在架上</span>
         </h1>
         <p className="shelf-lede">按自己的节奏浏览，不必一次看完。</p>
+        {!showcaseVisible ? (
+          <button type="button" className="feature-showcase-reopen" onClick={() => setShowcaseVisible(true)}>
+            功能导览
+          </button>
+        ) : null}
       </header>
+
+      {showcaseVisible ? (
+        <FeatureShowcase
+          onDismiss={() => setShowcaseVisible(false)}
+          onTrySurprise={() => {
+            setRandomOrder(true)
+            setShuffleSeed(Date.now())
+          }}
+        />
+      ) : null}
 
       <div className="shelf-modes" role="tablist" aria-label="浏览方式">
         {shelfModes.map((item) => (
