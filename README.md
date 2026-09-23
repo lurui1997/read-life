@@ -175,12 +175,19 @@ Key 写入 `data/read-life.sqlite`，不上传任何第三方。
 
 ```mermaid
 flowchart LR
-  Browser[浏览器] --> API[Hono API]
-  API --> Sync[同步引擎]
-  API --> DB[(SQLite)]
-  Sync --> Weread[微信读书 Gateway]
-  Sync --> DB
-  Browser --> Cache[localStorage 书架缓存]
+  browser["浏览器"]
+  api["Hono API"]
+  syncEngine["同步引擎"]
+  db[("SQLite")]
+  weread["微信读书 Gateway"]
+  webCache["localStorage 书架缓存"]
+
+  browser --> api
+  api --> syncEngine
+  api --> db
+  syncEngine --> weread
+  syncEngine --> db
+  browser --> webCache
 ```
 
 ```
