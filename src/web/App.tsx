@@ -3,6 +3,7 @@ import { getBook, getBooks, getKeyStatus, getSync, saveKey, startSync } from './
 import { formatDuration, formatProgress } from './format'
 import { BookCard } from './BookCard'
 import { ShelfBrowse } from './ShelfBrowse'
+import { SurpriseToolbar } from './SurpriseToolbar'
 import { applyRandomOrder, buildShelfSections, type ShelfMode } from './shelf-views'
 import type { BookDetail, BooksResponse, SyncStatus } from '../shared/types'
 
@@ -257,30 +258,18 @@ function Shelf({ libraryVersion }: { libraryVersion: number }) {
         ))}
       </div>
 
-      <div className="shelf-toolbar">
-        {mode !== 'random' ? (
-          <button
-            type="button"
-            className={randomOrder ? 'filter-chip active' : 'filter-chip'}
-            onClick={() => {
-              setRandomOrder((on) => {
-                if (!on) setShuffleSeed(Date.now())
-                return !on
-              })
-            }}
-          >
-            惊喜模式
-          </button>
-        ) : null}
-        {shuffleOn ? (
-          <>
-            <button type="button" className="filter-chip" onClick={() => setShuffleSeed(Date.now())}>
-              换一个顺序
-            </button>
-            <p className="muted shelf-toolbar-note">惊喜模式下，超过 100 本的分组会随机排列，排位靠后的书也有机会出现。</p>
-          </>
-        ) : null}
-      </div>
+      <SurpriseToolbar
+        showToggle={mode !== 'random'}
+        active={randomOrder}
+        shuffleOn={shuffleOn}
+        onToggle={() => {
+          setRandomOrder((on) => {
+            if (!on) setShuffleSeed(Date.now())
+            return !on
+          })
+        }}
+        onReshuffle={() => setShuffleSeed(Date.now())}
+      />
 
       {browseMode ? (
         <ShelfBrowse
