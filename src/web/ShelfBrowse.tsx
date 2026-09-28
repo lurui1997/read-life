@@ -68,6 +68,15 @@ export function ShelfBrowse({
   useEffect(() => {
     setSubFilter('全部')
     setVisibleCount(36)
+    const item = document.querySelector('.browse-nav-item.active')
+    const list = item?.parentElement
+    if (!(item instanceof HTMLElement) || !(list instanceof HTMLElement) || !list.classList.contains('browse-nav-list')) return
+    const listRect = list.getBoundingClientRect()
+    const itemRect = item.getBoundingClientRect()
+    if (itemRect.top < listRect.top) list.scrollTop -= listRect.top - itemRect.top
+    else if (itemRect.bottom > listRect.bottom) list.scrollTop += itemRect.bottom - listRect.bottom
+    if (itemRect.left < listRect.left) list.scrollLeft -= listRect.left - itemRect.left
+    else if (itemRect.right > listRect.right) list.scrollLeft += itemRect.right - listRect.right
   }, [activeKey, variant])
 
   if (sections.length === 0) {

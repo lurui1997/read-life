@@ -7,8 +7,9 @@ const METADATA_CONCURRENCY = 8
 export async function backfillBookMetadata(
   db: AppDatabase,
   client: WereadClient,
+  userId?: string,
 ): Promise<void> {
-  const pending = db.listBooksMissingMetadata()
+  const pending = db.listBooksMissingMetadata(userId)
   if (pending.length === 0) return
   let index = 0
   const workers = Array.from({ length: Math.min(METADATA_CONCURRENCY, pending.length) }, async () => {
@@ -18,7 +19,7 @@ export async function backfillBookMetadata(
       try {
         const data = await client.call('/book/info', { bookId })
         const info = parseBookInfo(data)
-        db.setBookMetadata(bookId, info)
+        db.setBookMetadata(bookId, info, userId)
       } catch {
         // 单本元数据失败不影响其他书
       }

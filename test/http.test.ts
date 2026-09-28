@@ -6,6 +6,29 @@ import { fakeWeread, highlights, localTimestamp, progress, shelfBook, tempDb } f
 import { runSync } from '../src/server/sync'
 
 describe('网页接口', () => {
+  it('开启登录后，未登录不能看书架，注册后可以', async () => {
+    const db = tempDb()
+    const app = createApp({ db, createClient: () => fakeWeread({}), authRequired: true })
+    const denied = await app.request('/api/books')
+    expect(denied.status).toBe(401)
+    const registered = await app.request('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'reader', email: 'a@b.co', password: 'password1' }),
+    })
+    expect(registered.status).toBe(200)
+    const cookie = registered.headers.get('set-cookie') ?? ''
+    const books = await app.request('/api/books', { headers: { cookie: cookie.split(';')[0] ?? '' } })
+    expect(books.status).toBe(200)
+    const chinese = await app.request('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: '读者甲', email: 'c@b.co', password: 'password1' }),
+    })
+    expect(chinese.status).toBe(200)
+    db.close()
+  })
+
   it('响应里没有 API Key，鉴权失败时旧 Key 还在', async () => {
     const db = tempDb()
     db.setApiKey('old-secret-key')
@@ -52,7 +75,7 @@ describe('网页接口', () => {
     const app = createApp({ db, createClient: () => fakeWeread({}) })
     const response = await app.request('/api/sync', { method: 'POST' })
     expect(response.status).toBe(400)
-    expect(await response.json()).toEqual({ error: '尚未配置 API Key' })
+    expect(await response.json()).toEqual({ error: '尚未绑定微信读书' })
     expect(db.latestSync()).toBeNull()
     db.close()
   })
@@ -79,7 +102,7 @@ describe('网页接口', () => {
     })
     const first = await app.request('/api/sync', { method: 'POST' })
     const second = await app.request('/api/sync?force=1', { method: 'POST' })
-    expect((await first.json()).running).toBe(true)
+    expect(await first.json()).toMatchObject({ running: true, phase: 'shelf', total: 0 })
     expect((await second.json()).running).toBe(true)
     expect(shelfCalls).toBe(1)
     release?.()
@@ -133,7 +156,6 @@ describe('网页接口', () => {
         category: null,
         newRating: null,
         ratingLabel: null,
-        wereadUrl: 'https://weread.qq.com/web/reader/zero',
       },
       ...(grouped.groups[0]?.books ?? []),
     ])
@@ -151,6 +173,42 @@ describe('网页接口', () => {
     const app = createApp({ db, createClient: () => fakeWeread({}) })
     const response = await app.request('/api/books/missing')
     expect(response.status).toBe(404)
+    db.close()
+  })
+})
+
+describe('开屏一句', () => {
+  it('只返回久未打开的书里还能独立读的划线', async () => {
+    const db = tempDb()
+    const ancient = Math.floor(Date.now() / 1000) - 400 * 86400
+    const recent = Math.floor(Date.now() / 1000) - 2 * 86400
+    db.upsertShelfBook(shelfBook({ bookId: 'old', title: '旧书', readUpdateTime: ancient }))
+    db.upsertShelfBook(shelfBook({ bookId: 'new', title: '新书', readUpdateTime: recent }))
+    db.replaceHighlights('old', 2, [{ chapterUid: 4, chapterIdx: 1, title: '夜' }], [
+      { bookmarkId: 'frag', chapterUid: 4, markText: '但是这句接上文。', range: null },
+      { bookmarkId: 'line', chapterUid: 4, markText: '他把窗打开，夜里的风就这样进来了。', range: '10-20' },
+    ])
+    db.replaceHighlights('new', 1, [{ chapterUid: 1, chapterIdx: 1, title: '灯' }], [
+      { bookmarkId: 'fresh', chapterUid: 1, markText: '他把灯关掉，房间就这样安静下来。', range: null },
+    ])
+    const app = createApp({ db, createClient: () => fakeWeread({}) })
+    const body = await (await app.request('/api/encounter')).json()
+    expect(body).toEqual({
+      encounters: [{
+        bookmarkId: 'line',
+        bookId: 'old',
+        title: '旧书',
+        chapterUid: 4,
+        markText: '他把窗打开，夜里的风就这样进来了。',
+      }],
+    })
+    db.close()
+  })
+
+  it('没有合格划线时不占开屏', async () => {
+    const db = tempDb()
+    const app = createApp({ db, createClient: () => fakeWeread({}) })
+    expect(await (await app.request('/api/encounter')).json()).toEqual({ encounters: [] })
     db.close()
   })
 })

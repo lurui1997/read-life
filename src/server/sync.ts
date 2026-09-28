@@ -36,33 +36,42 @@ type ArchiveGroup = {
 export async function refreshShelfCatalog(
   db: AppDatabase,
   client: WereadClient,
+  userId?: string,
 ): Promise<{ bookCount: number; archiveCount: number }> {
   const shelf = await fetchShelf(client)
-  applyShelf(db, shelf.books, shelf.archive)
+  applyShelf(db, shelf.books, shelf.archive, userId)
   return { bookCount: shelf.books.length, archiveCount: shelf.archive.length }
 }
 
 export async function runSync(
   db: AppDatabase,
   client: WereadClient,
-  options: { force: boolean; onProgress?: (done: number, total: number) => void },
+  options: {
+    force: boolean
+    userId?: string
+    onProgress?: (done: number, total: number, phase: 'shelf' | 'notes' | 'books') => void
+  },
 ): Promise<SyncRecord> {
   const startedAt = new Date().toISOString()
   try {
+    options.onProgress?.(0, 0, 'shelf')
     const shelf = await fetchShelf(client)
-    const noteCounts = await fetchNoteCounts(client)
-    applyShelf(db, shelf.books, shelf.archive)
-    options.onProgress?.(0, shelf.books.length)
+    options.onProgress?.(0, 0, 'notes')
+    const noteCounts = await fetchNoteCounts(client, (seen) => {
+      options.onProgress?.(seen, 0, 'notes')
+    })
+    applyShelf(db, shelf.books, shelf.archive, options.userId)
+    options.onProgress?.(0, shelf.books.length, 'books')
     const tally = { updated: 0, skipped: 0, failed: 0, errors: [] as SyncRecord['errors'] }
     let done = 0
     await eachBook(shelf.books, async (book) => {
-      const outcome = await syncOneBook(db, client, book, noteCounts.get(book.bookId) ?? 0, options.force)
+      const outcome = await syncOneBook(db, client, book, noteCounts.get(book.bookId) ?? 0, options.force, options.userId)
       tally.errors.push(...outcome.errors)
       if (outcome.failed) tally.failed += 1
       else if (outcome.wrote) tally.updated += 1
       else tally.skipped += 1
       done += 1
-      options.onProgress?.(done, shelf.books.length)
+      options.onProgress?.(done, shelf.books.length, 'books')
     })
     const record: SyncRecord = {
       startedAt,
@@ -74,7 +83,7 @@ export async function runSync(
       message: '',
       errors: tally.errors,
     }
-    db.insertSync(record)
+    db.insertSync(record, options.userId)
     return record
   } catch (error) {
     const record: SyncRecord = {
@@ -87,17 +96,17 @@ export async function runSync(
       message: error instanceof Error ? error.message : '同步失败',
       errors: [],
     }
-    db.insertSync(record)
+    db.insertSync(record, options.userId)
     return record
   }
 }
 
-function applyShelf(db: AppDatabase, shelf: ShelfBook[], archive: ArchiveGroup[]) {
+function applyShelf(db: AppDatabase, shelf: ShelfBook[], archive: ArchiveGroup[], userId?: string) {
   for (const book of shelf) {
-    db.upsertShelfBook(book)
+    db.upsertShelfBook(book, userId)
   }
-  db.markAbsentOffShelf(shelf.map((book) => book.bookId))
-  db.replaceArchiveGroups(archive)
+  db.markAbsentOffShelf(shelf.map((book) => book.bookId), userId)
+  db.replaceArchiveGroups(archive, userId)
 }
 
 async function syncOneBook(
@@ -106,16 +115,17 @@ async function syncOneBook(
   book: ShelfBook,
   noteCount: number,
   force: boolean,
+  userId?: string,
 ): Promise<{ failed: boolean; wrote: boolean; errors: SyncRecord['errors'] }> {
-  const stored = db.getBook(book.bookId)
+  const stored = db.getBook(book.bookId, userId)
   const errors: SyncRecord['errors'] = []
   let wrote = false
 
-  const progress = await syncProgress(db, client, book, stored?.progressCursor ?? { kind: 'never' }, force)
+  const progress = await syncProgress(db, client, book, stored?.progressCursor ?? { kind: 'never' }, force, userId)
   if (progress === 'write') wrote = true
   if (progress === 'fail') errors.push({ bookId: book.bookId, message: '进度同步失败' })
 
-  const highlights = await syncHighlights(db, client, book.bookId, noteCount, stored, force)
+  const highlights = await syncHighlights(db, client, book.bookId, noteCount, stored, force, userId)
   if (highlights === 'write') wrote = true
   if (highlights === 'fail') errors.push({ bookId: book.bookId, message: '划线同步失败' })
 
@@ -128,6 +138,7 @@ async function syncProgress(
   book: ShelfBook,
   cursor: ProgressCursor,
   force: boolean,
+  userId?: string,
 ): Promise<'skip' | 'write' | 'fail'> {
   if (!force && sameClock(book.readUpdateTime, cursor)) return 'skip'
   try {
@@ -143,7 +154,7 @@ async function syncProgress(
         : 0
     const nextCursor: ProgressCursor =
       book.readUpdateTime == null ? { kind: 'missing' } : { kind: 'time', time: book.readUpdateTime }
-    db.setProgress(book.bookId, progress, readingTime, nextCursor)
+    db.setProgress(book.bookId, progress, readingTime, nextCursor, userId)
     return 'write'
   } catch {
     return 'fail'
@@ -157,12 +168,13 @@ async function syncHighlights(
   noteCount: number,
   stored: { highlightsSynced: boolean; savedNoteCount: number } | null,
   force: boolean,
+  userId?: string,
 ): Promise<'skip' | 'write' | 'fail'> {
   const synced = stored?.highlightsSynced ?? false
   const savedNoteCount = stored?.savedNoteCount ?? 0
   if (noteCount === 0 && savedNoteCount === 0) {
     if (synced) return 'skip'
-    db.replaceHighlights(bookId, 0, [], [])
+    db.replaceHighlights(bookId, 0, [], [], userId)
     return 'write'
   }
   if (!force && synced && savedNoteCount === noteCount) return 'skip'
@@ -181,7 +193,7 @@ async function syncHighlights(
         known.add(highlight.chapterUid)
       }
     }
-    db.replaceHighlights(bookId, noteCount, chapters, highlights)
+    db.replaceHighlights(bookId, noteCount, chapters, highlights, userId)
     return 'write'
   } catch {
     return 'fail'
@@ -249,7 +261,7 @@ function parseArchiveGroups(value: unknown): ArchiveGroup[] {
   return groups
 }
 
-async function fetchNoteCounts(client: WereadClient): Promise<Map<string, number>> {
+async function fetchNoteCounts(client: WereadClient, onSeen?: (seen: number) => void): Promise<Map<string, number>> {
   const counts = new Map<string, number>()
   let lastSort: number | undefined
   for (let page = 0; page < 200; page += 1) {
@@ -258,6 +270,7 @@ async function fetchNoteCounts(client: WereadClient): Promise<Map<string, number
     const data = (await client.call('/user/notebooks', params)) as { books?: unknown; hasMore?: unknown }
     if (!Array.isArray(data.books)) throw new WereadError('笔记本响应缺少 books')
     for (const item of data.books) counts.set(readBookId(item), readNoteCount(item))
+    onSeen?.(counts.size)
     if (data.hasMore !== 1 || data.books.length === 0) return counts
     const sort = (data.books[data.books.length - 1] as { sort?: unknown }).sort
     if (typeof sort !== 'number' || sort === lastSort) return counts
@@ -277,7 +290,7 @@ function parseShelfBook(value: unknown): ShelfBook {
     cover: typeof book.cover === 'string' ? book.cover : '',
     readUpdateTime: typeof book.readUpdateTime === 'number' ? book.readUpdateTime : null,
     category: typeof book.category === 'string' && book.category.length > 0 ? book.category : null,
-    finishReading: book.finishReading === 1,
+    finishReading: book.finishReading === 1 || book.finishReading === true,
   }
 }
 

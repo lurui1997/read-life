@@ -25,7 +25,13 @@ export function BookCard({ book, large = false, subtitle = null }: BookCardProps
         </div>
         <div className="card-foot">
           <p className="meta">{formatProgress(book.progress, book.finishReading)} · {book.highlightCount} 条划线</p>
-          <a className="card-external" href={book.wereadUrl} target="_blank" rel="noreferrer" aria-label="在微信读书打开">
+          <a
+            className="card-external"
+            href={`/api/books/${encodeURIComponent(book.bookId)}/weread-redirect`}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="在微信读书打开"
+          >
             外读
           </a>
         </div>

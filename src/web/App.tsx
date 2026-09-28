@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { getBook, getBooks, getKeyStatus, getSync, saveKey, startSync } from './api'
+import { getBook, getBooks, getEncounter, getKeyStatus, getMe, getSync, loginAccount, logoutAccount, pollWereadLogin, registerAccount, saveKey, startSync, startWereadLogin, unlinkWeread, type AuthMe } from './api'
 import { formatDuration, formatProgress } from './format'
 import { BookCard } from './BookCard'
 import { ShelfBrowse } from './ShelfBrowse'
@@ -7,16 +7,21 @@ import { FeatureShowcase, readShowcaseDismissed } from './FeatureShowcase'
 import { LoadMoreSentinel } from './LoadMoreSentinel'
 import { SurpriseToolbar } from './SurpriseToolbar'
 import { applyRandomOrder, buildShelfSections, type ShelfMode } from './shelf-views'
+import { bookmarkIdFromHash, encounterHref, type Encounter } from '../shared/encounter'
 import type { BookDetail, BooksResponse, SyncStatus } from '../shared/types'
 
 type Route =
   | { name: 'shelf' }
   | { name: 'settings' }
+  | { name: 'login' }
+  | { name: 'register' }
   | { name: 'book'; bookId: string }
 
 function readRoute(): Route {
   const path = window.location.pathname
   if (path === '/settings') return { name: 'settings' }
+  if (path === '/login') return { name: 'login' }
+  if (path === '/register') return { name: 'register' }
   if (path.startsWith('/book/')) return { name: 'book', bookId: decodeURIComponent(path.slice('/book/'.length)) }
   return { name: 'shelf' }
 }
@@ -29,6 +34,17 @@ export function App() {
   const wasRunning = useRef(false)
   const shelfVisible = useRef(false)
   const [notifySyncAt, setNotifySyncAt] = useState<string | null>(null)
+  const [me, setMe] = useState<AuthMe | null>(null)
+
+  useEffect(() => {
+    void getMe().then((next) => {
+      setMe(next)
+      if (next.authRequired && next.user && (route.name === 'login' || route.name === 'register')) {
+        window.history.replaceState({}, '', '/')
+        setRoute({ name: 'shelf' })
+      }
+    }).catch(() => setMe(null))
+  }, [route.name])
 
   useEffect(() => {
     const onPop = () => setRoute(readRoute())
@@ -37,6 +53,7 @@ export function App() {
   }, [])
 
   useEffect(() => {
+    if (route.name === 'login' || route.name === 'register') return
     let stop = false
     async function poll() {
       const status = await getSync()
@@ -59,7 +76,7 @@ export function App() {
       stop = true
       window.clearInterval(timer)
     }
-  }, [])
+  }, [route.name])
 
   function go(href: string) {
     window.history.pushState({}, '', href)
@@ -82,19 +99,25 @@ export function App() {
   return (
     <div className={`app app-${route.name}`}>
       <header className={onShelf ? 'topbar topbar-shelf' : 'topbar'}>
-        <a className="brand" href="/" onClick={(event) => { event.preventDefault(); go('/') }}>阅读生活</a>
+        <a className="brand" href="/" onClick={(event) => { event.preventDefault(); go('/') }}>折角</a>
         <nav className={onShelf || onBook ? 'nav nav-minimal' : 'nav'}>
-          <a
-            className={onShelf || onBook ? 'nav-text' : undefined}
-            href="/settings"
-            onClick={(event) => { event.preventDefault(); go('/settings') }}
-          >
-            设置
-          </a>
+          {me?.authRequired && !me.user ? (
+            <a className="nav-text" href="/login" onClick={(event) => { event.preventDefault(); go('/login') }}>登录</a>
+          ) : (
+            <a
+              className={onShelf || onBook ? 'nav-text' : undefined}
+              href="/settings"
+              onClick={(event) => { event.preventDefault(); go('/settings') }}
+            >
+              设置
+            </a>
+          )}
         </nav>
       </header>
       {notice ? <p className="error">{notice}</p> : null}
       <SyncBanner status={sync} notifySyncAt={notifySyncAt} />
+      {route.name === 'login' ? <AuthForm mode="login" onDone={() => go('/')} /> : null}
+      {route.name === 'register' ? <AuthForm mode="register" onDone={() => go('/')} /> : null}
       {route.name === 'settings' ? (
         <Settings
           sync={sync}
@@ -111,7 +134,7 @@ export function App() {
           }}
         />
       ) : null}
-      {route.name === 'shelf' ? <Shelf libraryVersion={libraryVersion} /> : null}
+      {route.name === 'shelf' ? <Shelf libraryVersion={libraryVersion} syncing={sync?.running === true} /> : null}
       {route.name === 'book' ? (
         <BookPage bookId={route.bookId} libraryVersion={libraryVersion} onBack={() => go('/')} />
       ) : null}
@@ -137,15 +160,37 @@ function writeDismissedSync(finishedAt: string) {
   }
 }
 
+function syncLine(status: SyncStatus): string {
+  if (status.total > 0) {
+    const percent = Math.round((status.done / status.total) * 100)
+    return `正在同步进度和划线，${status.done} / ${status.total}（${percent}%）`
+  }
+  if (status.phase === 'notes') {
+    return status.done > 0 ? `正在读取划线目录，已看到 ${status.done} 本` : '正在读取划线目录'
+  }
+  return '正在读取书架'
+}
+
 function SyncBanner({ status, notifySyncAt }: { status: SyncStatus | null; notifySyncAt: string | null }) {
   const [dismissedAt, setDismissedAt] = useState<string | null>(() => readDismissedSync())
 
   if (!status) return null
   if (status.running) {
-    const progress = status.total > 0 ? ` ${status.done} / ${status.total}` : ''
+    const known = status.total > 0
+    const percent = known ? Math.min(100, Math.round((status.done / status.total) * 100)) : 0
     return (
-      <div className="banner banner-sync" role="status">
-        <p>正在同步书架、划线和进度{progress}。失败的书会自动再试。</p>
+      <div className="banner banner-sync" role="status" aria-live="polite">
+        <p>{syncLine(status)}</p>
+        <div
+          className={known ? 'sync-track' : 'sync-track is-indeterminate'}
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={known ? status.total : undefined}
+          aria-valuenow={known ? status.done : undefined}
+          aria-label={syncLine(status)}
+        >
+          <span style={known ? { width: `${percent}%` } : undefined} />
+        </div>
       </div>
     )
   }
@@ -176,6 +221,8 @@ function SyncBanner({ status, notifySyncAt }: { status: SyncStatus | null; notif
 }
 
 const shelfCacheKey = 'read-life.shelf.v2'
+/** ponytail: 大书架 JSON 写 localStorage 会阻塞主线程，超过此数量不缓存 */
+const shelfCacheMaxBooks = 800
 const shelfModeKey = 'read-life.shelf-mode'
 const shelfRandomOrderKey = 'read-life.shelf-random-order'
 
@@ -209,6 +256,14 @@ function readShelfCache(): BooksResponse | null {
 }
 
 function writeShelfCache(data: BooksResponse) {
+  if (data.books.length > shelfCacheMaxBooks) {
+    try {
+      localStorage.removeItem(shelfCacheKey)
+    } catch {
+      // ignore
+    }
+    return
+  }
   try {
     localStorage.setItem(shelfCacheKey, JSON.stringify(data))
   } catch {
@@ -216,7 +271,7 @@ function writeShelfCache(data: BooksResponse) {
   }
 }
 
-function Shelf({ libraryVersion }: { libraryVersion: number }) {
+function Shelf({ libraryVersion, syncing }: { libraryVersion: number; syncing: boolean }) {
   const [data, setData] = useState<BooksResponse | null>(readShelfCache)
   const [error, setError] = useState('')
   const [mode, setMode] = useState<ShelfMode>(readShelfMode)
@@ -228,6 +283,7 @@ function Shelf({ libraryVersion }: { libraryVersion: number }) {
     const guide = new URLSearchParams(window.location.search).get('guide') === '1'
     return guide || !readShowcaseDismissed()
   })
+  const [encounters, setEncounters] = useState<Encounter[]>([])
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -248,6 +304,13 @@ function Shelf({ libraryVersion }: { libraryVersion: number }) {
       })
       .catch((reason: Error) => {
         if (!stop) setError(reason.message)
+      })
+    void getEncounter()
+      .then((next) => {
+        if (!stop) setEncounters(next.encounters)
+      })
+      .catch(() => {
+        if (!stop) setEncounters([])
       })
     return () => {
       stop = true
@@ -273,7 +336,8 @@ function Shelf({ libraryVersion }: { libraryVersion: number }) {
     return <p className="state-message">正在打开书架…</p>
   }
   if (data.books.length === 0) {
-    return <p className="state-message">书架还是空的。先在设置里保存 API Key，再同步。</p>
+    if (syncing) return <p className="state-message">书还在路上，进度见上方。</p>
+    return <p className="state-message">书架还是空的。到设置里绑定微信读书，再同步一次。</p>
   }
 
   const baseSections = buildShelfSections(data.books, data.archiveGroups, mode)
@@ -286,6 +350,30 @@ function Shelf({ libraryVersion }: { libraryVersion: number }) {
       : baseSections
   return (
     <div className="shelf">
+      {encounters.length > 0 ? (
+        <section className="encounter-block" aria-label="随机划线">
+          {encounters.map((encounter) => (
+            <a className="encounter" href={encounterHref(encounter.bookId, encounter.bookmarkId)} key={encounter.bookmarkId}>
+              <p className="encounter-line">{encounter.markText}</p>
+              <span className="encounter-meta">
+                <span className="encounter-title">{encounter.title || '未命名'}</span>
+                <span className="encounter-go">去这一章</span>
+              </span>
+            </a>
+          ))}
+          <button
+            type="button"
+            className="encounter-refresh"
+            onClick={() => {
+              void getEncounter(encounters.map((item) => item.bookmarkId))
+                .then((next) => setEncounters(next.encounters))
+                .catch(() => setEncounters([]))
+            }}
+          >
+            重新随机
+          </button>
+        </section>
+      ) : null}
       {showcaseVisible ? (
         <FeatureShowcase
           onDismiss={() => setShowcaseVisible(false)}
@@ -392,6 +480,16 @@ function BookPage({
     void getBook(bookId).then(setBook).catch((reason: Error) => setError(reason.message))
   }, [bookId, libraryVersion])
 
+  useEffect(() => {
+    if (!book) return
+    const bookmarkId = bookmarkIdFromHash(window.location.hash)
+    if (!bookmarkId) return
+    const node = document.querySelector(`[data-bookmark="${CSS.escape(bookmarkId)}"]`)
+    if (!(node instanceof HTMLElement)) return
+    node.classList.add('is-encounter')
+    node.scrollIntoView({ block: 'center' })
+  }, [book])
+
   if (error) return <p className="error">{error}</p>
   if (!book) return <p className="state-message">正在打开这本书…</p>
   return (
@@ -418,6 +516,12 @@ function BookPage({
           </div>
           <p className="book-actions">
             <a className="weread-link" href={book.wereadUrl} target="_blank" rel="noreferrer">在微信读书继续读</a>
+            {book.highlightCount > 0 ? (
+              <>
+                <a className="weread-link" href={`/api/books/${encodeURIComponent(book.bookId)}/export`}>导出 Markdown</a>
+                <a className="weread-link" href={`/api/books/${encodeURIComponent(book.bookId)}/export?format=csv`}>导出 CSV</a>
+              </>
+            ) : null}
           </p>
           {book.onShelf ? null : <p className="muted book-aside">不在书架上，划线仍保留。</p>}
         </div>
@@ -430,7 +534,7 @@ function BookPage({
             <section className="chapter" key={chapter.chapterUid}>
               <h2>{chapter.title}</h2>
               {chapter.highlights.map((highlight) => (
-                <blockquote className="highlight" key={highlight.bookmarkId}>
+                <blockquote className="highlight" data-bookmark={highlight.bookmarkId} key={highlight.bookmarkId}>
                   <p>{highlight.markText}</p>
                 </blockquote>
               ))}
@@ -439,6 +543,157 @@ function BookPage({
         </div>
       )}
     </article>
+  )
+}
+
+function AuthForm({ mode, onDone }: { mode: 'login' | 'register'; onDone: () => void }) {
+  const [login, setLogin] = useState('')
+  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+
+  async function onSubmit(event: FormEvent) {
+    event.preventDefault()
+    setError('')
+    try {
+      if (mode === 'login') await loginAccount({ login, password })
+      else await registerAccount({ username, email, password })
+      onDone()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '没有完成')
+    }
+  }
+
+  return (
+    <form className="settings-page settings-form" onSubmit={(event) => void onSubmit(event)}>
+      <h1>{mode === 'login' ? '登录' : '注册'}</h1>
+      {mode === 'login' ? (
+        <input value={login} placeholder="用户名或邮箱" onChange={(event) => setLogin(event.target.value)} />
+      ) : (
+        <>
+          <input value={username} placeholder="用户名" onChange={(event) => setUsername(event.target.value)} />
+          <input value={email} placeholder="邮箱" onChange={(event) => setEmail(event.target.value)} />
+        </>
+      )}
+      <input type="password" value={password} placeholder="密码" onChange={(event) => setPassword(event.target.value)} />
+      <button className="primary" type="submit">{mode === 'login' ? '登录' : '注册'}</button>
+      {error ? <p className="error">{error}</p> : null}
+      {mode === 'login' ? (
+        <a href="/register" onClick={(event) => { event.preventDefault(); window.history.pushState({}, '', '/register'); window.dispatchEvent(new PopStateEvent('popstate')) }}>没有账号？注册</a>
+      ) : (
+        <a href="/login" onClick={(event) => { event.preventDefault(); window.history.pushState({}, '', '/login'); window.dispatchEvent(new PopStateEvent('popstate')) }}>已有账号？登录</a>
+      )}
+    </form>
+  )
+}
+
+function AccountPanel() {
+  const [me, setMe] = useState<AuthMe | null>(null)
+  useEffect(() => {
+    void getMe().then(setMe).catch(() => setMe(null))
+  }, [])
+  if (!me?.authRequired || !me.user) return null
+  return (
+    <div className="settings-account">
+      <h3>账号</h3>
+      <p className="muted">{me.user.username} · {me.user.email}</p>
+      <button
+        type="button"
+        className="settings-secondary"
+        onClick={() => {
+          void logoutAccount().then(() => window.location.assign('/login'))
+        }}
+      >
+        退出登录
+      </button>
+    </div>
+  )
+}
+
+function WereadBind({
+  configured,
+  wrName,
+  bookCount,
+  syncing,
+  onSync,
+  onChange,
+}: {
+  configured: boolean | null
+  wrName: string | null
+  bookCount: number | null
+  syncing: boolean
+  onSync: () => void
+  onChange: () => void
+}) {
+  const [qr, setQr] = useState('')
+  const [hint, setHint] = useState('')
+  const [error, setError] = useState('')
+
+  async function begin() {
+    setError('')
+    setHint('正在生成二维码…')
+    const started = await startWereadLogin()
+    setQr(started.qrDataUrl)
+    setHint('请用微信扫描二维码')
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 2000))
+      const result = await pollWereadLogin(started.loginId)
+      if (result.status === 'done') {
+        setHint(result.wrName ? `已绑定 ${result.wrName}` : '已绑定微信读书')
+        setQr('')
+        onChange()
+        return
+      }
+      if (result.status === 'error') {
+        setError(result.error ?? '扫码失败')
+        setQr('')
+        return
+      }
+    }
+    setError('等待超时，请重试')
+  }
+
+  const needsSync = configured === true && bookCount === 0 && !syncing
+  const displayName = wrName || ''
+
+  return (
+    <section className="settings-panel settings-bind">
+      <div className="settings-bind-head">
+        <h2>微信读书</h2>
+        {configured ? <span className="settings-pill">已绑定</span> : <span className="settings-pill settings-pill-wait">未绑定</span>}
+      </div>
+      {configured ? (
+        <p className="settings-bind-name">{displayName || '已连接'}</p>
+      ) : (
+        <p className="muted">用微信扫码，把你的书架接到这个账号上。</p>
+      )}
+      {needsSync ? <p className="settings-bind-next">书架还是空的。同步一次，书就会出现。</p> : null}
+      {qr ? (
+        <div className="settings-qr">
+          <img src={qr} alt="微信读书登录二维码" width={196} height={196} />
+          <p>打开微信，扫一扫</p>
+        </div>
+      ) : null}
+      <div className="settings-actions">
+        {needsSync ? (
+          <button type="button" className="primary" onClick={onSync} disabled={syncing}>
+            {syncing ? '同步中…' : '同步书架'}
+          </button>
+        ) : null}
+        <button type="button" className={needsSync ? 'settings-secondary' : 'primary'} onClick={() => void begin().catch((reason: Error) => setError(reason.message))}>
+          {configured ? '更换账号' : '扫码绑定'}
+        </button>
+        {configured ? (
+          <button type="button" className="settings-secondary" onClick={() => void unlinkWeread().then(() => { setHint(''); onChange() })}>
+            解除绑定
+          </button>
+        ) : null}
+      </div>
+      {hint && !hint.startsWith('已绑定') ? <p className="muted settings-bind-hint">{hint}</p> : null}
+      {error ? <p className="error">{error}</p> : null}
+      <AccountPanel />
+    </section>
   )
 }
 
@@ -460,10 +715,12 @@ function Settings({
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [bookCount, setBookCount] = useState<number | null>(null)
+  const [wrName, setWrName] = useState<string | null>(null)
 
   useEffect(() => {
     void getKeyStatus().then((status) => setConfigured(status.configured))
-  }, [])
+    void getMe().then((me) => setWrName(me.weread.wrName)).catch(() => setWrName(null))
+  }, [libraryVersion])
 
   useEffect(() => {
     void getBooks()
@@ -502,8 +759,22 @@ function Settings({
 
       <header className="settings-head">
         <h1>设置</h1>
-        <p className="muted">同步、书架概览与 API Key 都在这里。</p>
+        <p className="muted">
+          {configured ? '账号、微信读书和同步都在这里。' : '先连上微信读书，再同步书架。'}
+        </p>
       </header>
+
+      <WereadBind
+        configured={configured}
+        wrName={wrName}
+        bookCount={bookCount}
+        syncing={sync?.running === true}
+        onSync={() => void onSync(false)}
+        onChange={() => {
+          void getKeyStatus().then((status) => setConfigured(status.configured))
+          void getMe().then((me) => setWrName(me.weread.wrName)).catch(() => setWrName(null))
+        }}
+      />
 
       <section className="settings-panel">
         <h2>我的书架</h2>
@@ -515,31 +786,52 @@ function Settings({
         ) : (
           <p className="muted">正在读取书架…</p>
         )}
-        <p className="settings-lede">按自己的节奏浏览，不必一次看完。</p>
+        {bookCount === 0 ? (
+          <p className="settings-lede">同步完成后，数字会变成你的在架本数。</p>
+        ) : null}
+        <div className="settings-sync">
+          <h2>同步</h2>
+          <div className="settings-actions">
+            <button type="button" className="primary" onClick={() => void onSync(false)} disabled={sync?.running}>
+              {sync?.running ? '同步中…' : '同步'}
+            </button>
+            <button type="button" className="settings-secondary" onClick={() => void onSync(true)} disabled={sync?.running}>
+              强制同步
+            </button>
+          </div>
+          {sync?.running && sync.total > 0 ? (
+            <p className="muted settings-meta">进度 {sync.done} / {sync.total}</p>
+          ) : null}
+          {last ? (
+            <p className="muted settings-meta">
+              上次同步：书架 {last.shelfCount} 本，更新 {last.updated}，跳过 {last.skipped}
+              {last.failed > 0 ? `，失败 ${last.failed}` : ''}
+            </p>
+          ) : (
+            <p className="muted settings-meta">还没有同步记录。</p>
+          )}
+        </div>
       </section>
 
-      <section className="settings-panel">
-        <h2>同步</h2>
-        <div className="settings-actions">
-          <button type="button" className="primary" onClick={() => void onSync(false)} disabled={sync?.running}>
-            {sync?.running ? '同步中…' : '同步'}
-          </button>
-          <button type="button" className="settings-secondary" onClick={() => void onSync(true)} disabled={sync?.running}>
-            强制同步
-          </button>
-        </div>
-        {sync?.running && sync.total > 0 ? (
-          <p className="muted settings-meta">进度 {sync.done} / {sync.total}</p>
-        ) : null}
-        {last ? (
-          <p className="muted settings-meta">
-            上次同步：书架 {last.shelfCount} 本，更新 {last.updated}，跳过 {last.skipped}
-            {last.failed > 0 ? `，失败 ${last.failed}` : ''}
+      <form className="settings-panel settings-form" onSubmit={(event) => void onSubmit(event)}>
+        <details>
+          <summary>高级：手动填写 API Key</summary>
+          <p className="muted">
+            {configured ? '已绑定。保存新的 Key 之前会先向微信读书确认。' : '扫码失败时可以粘贴 wrk- 开头的 Key。'}
           </p>
-        ) : (
-          <p className="muted settings-meta">还没有同步记录。</p>
-        )}
-      </section>
+          <input
+            type="password"
+            name="apiKey"
+            autoComplete="off"
+            value={apiKey}
+            placeholder="粘贴 API Key"
+            onChange={(event) => setApiKey(event.target.value)}
+          />
+          <button className="primary" type="submit">保存</button>
+        </details>
+        {message ? <p>{message}</p> : null}
+        {error ? <p className="error">{error}</p> : null}
+      </form>
 
       <section className="settings-panel">
         <h2>功能导览</h2>
@@ -548,24 +840,6 @@ function Settings({
           打开功能导览
         </button>
       </section>
-
-      <form className="settings-panel settings-form" onSubmit={(event) => void onSubmit(event)}>
-        <h2>微信读书 API Key</h2>
-        <p className="muted">
-          {configured ? '这台电脑上已经有 Key。保存新的 Key 之前会先向微信读书确认。' : '还没有 Key。Key 只存在这台电脑上。'}
-        </p>
-        <input
-          type="password"
-          name="apiKey"
-          autoComplete="off"
-          value={apiKey}
-          placeholder="粘贴 API Key"
-          onChange={(event) => setApiKey(event.target.value)}
-        />
-        <button className="primary" type="submit">保存</button>
-        {message ? <p>{message}</p> : null}
-        {error ? <p className="error">{error}</p> : null}
-      </form>
     </div>
   )
 }

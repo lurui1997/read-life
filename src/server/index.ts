@@ -6,33 +6,42 @@ import { fileURLToPath } from 'node:url'
 import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { createApp } from './app'
-import { openDatabase } from './db'
+import { LOCAL_USER_ID, openDatabase } from './db'
 import { backfillBookMetadata } from './metadata'
 import { refreshShelfCatalog } from './sync'
 import { createWereadClient } from './weread'
+import { readConfig } from './config'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const port = Number(process.env.PORT ?? 8787)
 const dbPath = process.env.READ_LIFE_DB ?? path.join(root, 'data', 'read-life.sqlite')
 
-const db = openDatabase(dbPath)
-const app = createApp({ db, createClient: (apiKey) => createWereadClient(apiKey) })
+const config = readConfig()
+const db = openDatabase(dbPath, config.wereadSecret)
+const app = createApp({
+  db,
+  createClient: (apiKey) => createWereadClient(apiKey),
+  authRequired: config.authRequired,
+  cookieSecure: config.cookieSecure,
+})
 
 function startBackgroundCatalogRefresh() {
-  const apiKey = db.getApiKey()
+  const userId = config.authRequired ? null : LOCAL_USER_ID
+  if (!userId) return
+  const apiKey = db.getApiKey(userId)
   if (!apiKey) return
   const client = createWereadClient(apiKey)
   void (async () => {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        await refreshShelfCatalog(db, client)
+        await refreshShelfCatalog(db, client, userId)
         break
       } catch {
         if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 3000 * (attempt + 1)))
       }
     }
     try {
-      await backfillBookMetadata(db, client)
+      await backfillBookMetadata(db, client, userId)
     } catch {
       // 推荐值补拉失败时不影响主服务
     }
@@ -46,7 +55,7 @@ if (production) {
   app.use('/assets/*', serveStatic({ root: path.join(root, 'dist') }))
   app.get('*', (c) => c.html(fs.readFileSync(path.join(root, 'dist', 'index.html'), 'utf8')))
   serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, (info) => {
-    console.log(`阅读生活已在 http://127.0.0.1:${info.port} 打开`)
+    console.log(`折角已在 http://127.0.0.1:${info.port} 打开`)
   })
 } else {
   const { createServer: createViteServer } = await import('vite')
@@ -67,7 +76,7 @@ if (production) {
     })
   })
   server.listen(port, '127.0.0.1', () => {
-    console.log(`阅读生活已在 http://127.0.0.1:${port} 打开`)
+    console.log(`折角已在 http://127.0.0.1:${port} 打开`)
   })
 }
 

@@ -46,7 +46,7 @@ export function shelfBook(book: {
     cover: book.cover ?? 'https://example.com/cover.jpg',
     readUpdateTime: book.readUpdateTime === undefined ? localTimestamp(2026) : book.readUpdateTime,
     category: book.category ?? null,
-    finishReading: book.finishReading ? 1 : 0,
+    finishReading: Boolean(book.finishReading),
   }
 }
 

@@ -14,11 +14,14 @@ export type SyncRecord = {
   errors: SyncError[]
 }
 
+export type SyncPhase = 'shelf' | 'notes' | 'books'
+
 export type SyncStatus = {
   running: boolean
   last: SyncRecord | null
   done: number
   total: number
+  phase: SyncPhase | null
 }
 
 export type BookSummary = {
@@ -34,7 +37,6 @@ export type BookSummary = {
   category: string | null
   newRating: number | null
   ratingLabel: string | null
-  wereadUrl: string
 }
 
 export type BooksResponse = {

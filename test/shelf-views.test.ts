@@ -14,7 +14,6 @@ function book(overrides: Partial<BookSummary> & Pick<BookSummary, 'bookId' | 'ti
     category: null,
     newRating: null,
     ratingLabel: null,
-    wereadUrl: 'https://weread.qq.com/web/reader/x',
     ...overrides,
   }
 }
