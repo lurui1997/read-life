@@ -1,4 +1,5 @@
 import type { Encounter } from '../shared/encounter'
+import type { MapQuote, MapSourceBook } from '../shared/reading-map'
 import type { BookDetail, BooksResponse, SyncStatus } from '../shared/types'
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -48,6 +49,15 @@ export function getBooks() {
 
 export function getBook(bookId: string) {
   return request<BookDetail>(`/api/books/${encodeURIComponent(bookId)}`)
+}
+
+export function getMap() {
+  return request<{ books: MapSourceBook[] }>('/api/map')
+}
+
+export function getMapQuotes(category: string) {
+  const query = new URLSearchParams({ category })
+  return request<{ quotes: MapQuote[] }>(`/api/map/quotes?${query}`)
 }
 
 export function getEncounter(exclude: string[] = []) {

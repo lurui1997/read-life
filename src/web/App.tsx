@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { getBook, getBooks, getEncounter, getKeyStatus, getMe, getSync, loginAccount, logoutAccount, pollWereadLogin, registerAccount, saveKey, startSync, startWereadLogin, unlinkWeread, type AuthMe } from './api'
 import { formatDuration, formatProgress } from './format'
 import { BookCard } from './BookCard'
+import { ReadingMap } from './ReadingMap'
 import { ShelfBrowse } from './ShelfBrowse'
 import { FeatureShowcase, readShowcaseDismissed } from './FeatureShowcase'
 import { LoadMoreSentinel } from './LoadMoreSentinel'
@@ -16,12 +17,14 @@ type Route =
   | { name: 'login' }
   | { name: 'register' }
   | { name: 'book'; bookId: string }
+  | { name: 'map' }
 
 function readRoute(): Route {
   const path = window.location.pathname
   if (path === '/settings') return { name: 'settings' }
   if (path === '/login') return { name: 'login' }
   if (path === '/register') return { name: 'register' }
+  if (path === '/map') return { name: 'map' }
   if (path.startsWith('/book/')) return { name: 'book', bookId: decodeURIComponent(path.slice('/book/'.length)) }
   return { name: 'shelf' }
 }
@@ -125,13 +128,16 @@ export function App() {
           {me?.authRequired && !me.user ? (
             <a className="nav-text" href="/login" onClick={(event) => { event.preventDefault(); go('/login') }}>登录</a>
           ) : (
-            <a
-              className={minimalNav ? 'nav-text' : undefined}
-              href="/settings"
-              onClick={(event) => { event.preventDefault(); go('/settings') }}
-            >
-              设置
-            </a>
+            <>
+              <a className="nav-text nav-map" href="/map" onClick={(event) => { event.preventDefault(); go('/map') }}>地图</a>
+              <a
+                className={minimalNav ? 'nav-text' : undefined}
+                href="/settings"
+                onClick={(event) => { event.preventDefault(); go('/settings') }}
+              >
+                设置
+              </a>
+            </>
           )}
         </nav>
       </header>
@@ -156,6 +162,7 @@ export function App() {
         />
       ) : null}
       {route.name === 'shelf' ? <Shelf libraryVersion={libraryVersion} syncing={sync?.running === true} /> : null}
+      {route.name === 'map' ? <ReadingMap onClose={() => go('/')} onOpen={(href) => go(href)} /> : null}
       {route.name === 'book' ? (
         <BookPage bookId={route.bookId} libraryVersion={libraryVersion} onBack={() => go('/')} />
       ) : null}

@@ -1,7 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import Database from 'better-sqlite3'
-import type { EncounterCandidate } from '../shared/encounter'
+import { isStandaloneSentence, type EncounterCandidate } from '../shared/encounter'
+import type { MapQuote, MapSourceBook } from '../shared/reading-map'
 import type { BookDetail, BookSummary, Highlight, SyncRecord } from '../shared/types'
 import { normalizeProgress } from '../shared/progress'
 import { wereadReaderUrl } from './weread-url'
@@ -89,6 +90,8 @@ export type AppDatabase = {
   ): void
   getBookDetail(bookId: string, userId?: string): BookDetail | null
   listHighlightLines(userId?: string): EncounterCandidate[]
+  listMapBooks(userId?: string): MapSourceBook[]
+  listMapQuotes(category: string, userId?: string): MapQuote[]
   upsertShelfBook(book: {
     bookId: string
     title: string
@@ -513,6 +516,42 @@ export function openDatabase(filePath: string, secret: string | null = null): Ap
         wereadUrl: wereadReaderUrl(row.book_id),
         chapters: detailChapters,
       }
+    },
+    listMapBooks(userId?: string) {
+      return sqlite.prepare(`
+        SELECT b.book_id AS bookId,
+               b.title AS title,
+               b.author AS author,
+               COALESCE(NULLIF(b.category, ''), '未分类') AS category,
+               b.read_update_time AS readUpdateTime,
+               COUNT(h.bookmark_id) AS highlightCount
+        FROM books b
+        LEFT JOIN highlights h ON h.user_id = b.user_id AND h.book_id = b.book_id
+        WHERE b.user_id = ?
+          AND b.on_shelf = 1
+        GROUP BY b.book_id
+      `).all(uid(userId)) as MapSourceBook[]
+    },
+    listMapQuotes(category: string, userId?: string) {
+      const rows = sqlite.prepare(`
+        SELECT h.bookmark_id AS bookmarkId,
+               h.book_id AS bookId,
+               b.title AS title,
+               h.mark_text AS markText
+        FROM highlights h
+        JOIN books b ON b.user_id = h.user_id AND b.book_id = h.book_id
+        WHERE h.user_id = ?
+          AND b.on_shelf = 1
+          AND (
+            (? = '未分类' AND (b.category IS NULL OR b.category = ''))
+            OR b.category = ?
+          )
+          AND length(h.mark_text) BETWEEN 16 AND 180
+        ORDER BY ABS(length(h.mark_text) - 42)
+        LIMIT 80
+      `).all(uid(userId), category, category) as MapQuote[]
+      const standalone = rows.filter((row) => isStandaloneSentence(row.markText))
+      return (standalone.length >= 3 ? standalone : rows).slice(0, 8)
     },
     listHighlightLines(userId?: string) {
       const rows = sqlite.prepare<[string], {

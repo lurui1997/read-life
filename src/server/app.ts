@@ -240,6 +240,14 @@ export function createApp(options: AppOptions) {
     })
   })
 
+  app.get('/api/map/quotes', (c) => {
+    const category = c.req.query('category')?.trim() ?? ''
+    if (!category) return c.json({ error: '缺少分类' }, 400)
+    return c.json({ quotes: db.listMapQuotes(category, c.get('userId')) })
+  })
+
+  app.get('/api/map', (c) => c.json({ books: db.listMapBooks(c.get('userId')) }))
+
   app.get('/api/encounter', (c) => {
     const exclude = new Set(
       (c.req.query('exclude') ?? '').split(',').map((id) => id.trim()).filter(Boolean).slice(0, 12),
