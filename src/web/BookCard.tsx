@@ -20,9 +20,11 @@ export function BookCard({ book, large = false, subtitle = null }: BookCardProps
         </h2>
         <p className="card-author">{book.author || '未知作者'}</p>
         {subtitle ? <p className="card-subtitle">{subtitle}</p> : null}
-        <div className="progress-bar" aria-hidden="true">
-          <span style={{ width: `${Math.max(0, Math.min(progress, 100))}%` }} />
-        </div>
+        {progress > 0 ? (
+          <div className="progress-bar" aria-hidden="true">
+            <span style={{ width: `${Math.min(progress, 100)}%` }} />
+          </div>
+        ) : null}
         <div className="card-foot">
           <p className="meta">{formatProgress(book.progress, book.finishReading)} · {book.highlightCount} 条划线</p>
           <a

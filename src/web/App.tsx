@@ -53,6 +53,22 @@ export function App() {
   }, [])
 
   useEffect(() => {
+    if (route.name !== 'shelf') return
+    const topbar = document.querySelector('.topbar')
+    if (!(topbar instanceof HTMLElement)) return
+    const apply = () => {
+      document.documentElement.style.setProperty('--topbar-h', `${topbar.offsetHeight}px`)
+    }
+    apply()
+    const observer = new ResizeObserver(apply)
+    observer.observe(topbar)
+    return () => {
+      observer.disconnect()
+      document.documentElement.style.removeProperty('--topbar-h')
+    }
+  }, [route.name])
+
+  useEffect(() => {
     if (route.name === 'login' || route.name === 'register') return
     let stop = false
     async function poll() {
@@ -95,17 +111,22 @@ export function App() {
 
   const onShelf = route.name === 'shelf'
   const onBook = route.name === 'book'
+  const shelfChrome = onShelf || route.name === 'settings'
+  const minimalNav = shelfChrome || onBook
 
   return (
     <div className={`app app-${route.name}`}>
-      <header className={onShelf ? 'topbar topbar-shelf' : 'topbar'}>
-        <a className="brand" href="/" onClick={(event) => { event.preventDefault(); go('/') }}>折角</a>
-        <nav className={onShelf || onBook ? 'nav nav-minimal' : 'nav'}>
+      <header className={shelfChrome ? 'topbar topbar-shelf' : 'topbar'}>
+        <a className="brand" href="/" onClick={(event) => { event.preventDefault(); go('/') }}>
+          <span className="brand-mark" aria-hidden="true" />
+          折角
+        </a>
+        <nav className={minimalNav ? 'nav nav-minimal' : 'nav'}>
           {me?.authRequired && !me.user ? (
             <a className="nav-text" href="/login" onClick={(event) => { event.preventDefault(); go('/login') }}>登录</a>
           ) : (
             <a
-              className={onShelf || onBook ? 'nav-text' : undefined}
+              className={minimalNav ? 'nav-text' : undefined}
               href="/settings"
               onClick={(event) => { event.preventDefault(); go('/settings') }}
             >
@@ -284,6 +305,7 @@ function Shelf({ libraryVersion, syncing }: { libraryVersion: number; syncing: b
     return guide || !readShowcaseDismissed()
   })
   const [encounters, setEncounters] = useState<Encounter[]>([])
+  const toolsRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -330,6 +352,21 @@ function Shelf({ libraryVersion, syncing }: { libraryVersion: number; syncing: b
   useEffect(() => {
     localStorage.setItem(shelfRandomOrderKey, randomOrder ? '1' : '0')
   }, [randomOrder])
+
+  useEffect(() => {
+    const node = toolsRef.current
+    if (!node) return
+    const apply = () => {
+      document.documentElement.style.setProperty('--shelf-tools-h', `${node.offsetHeight}px`)
+    }
+    apply()
+    const observer = new ResizeObserver(apply)
+    observer.observe(node)
+    return () => {
+      observer.disconnect()
+      document.documentElement.style.removeProperty('--shelf-tools-h')
+    }
+  }, [data, mode, randomOrder])
 
   if (!data) {
     if (error) return <p className="error">{error}</p>
@@ -384,6 +421,7 @@ function Shelf({ libraryVersion, syncing }: { libraryVersion: number; syncing: b
         />
       ) : null}
 
+      <div className="shelf-tools" ref={toolsRef}>
       <div className="shelf-modes" role="tablist" aria-label="浏览方式">
         {shelfModes.map((item) => (
           <button
@@ -411,6 +449,7 @@ function Shelf({ libraryVersion, syncing }: { libraryVersion: number; syncing: b
         }}
         onReshuffle={() => setShuffleSeed(Date.now())}
       />
+      </div>
 
       {browseMode ? (
         <ShelfBrowse
@@ -506,7 +545,7 @@ function BookPage({
       </a>
       <header className="book-head">
         {book.cover ? <img src={book.cover} alt="" /> : <div className="book-cover" />}
-        <div>
+        <div className="book-head-copy">
           <h1>{book.title || '未命名'}</h1>
           <p className="meta">{book.author}</p>
           <div className="stats">
@@ -514,17 +553,17 @@ function BookPage({
             <span>{formatDuration(book.readingTimeSeconds)}</span>
             <span>{book.highlightCount} 条划线</span>
           </div>
-          <p className="book-actions">
-            <a className="weread-link" href={book.wereadUrl} target="_blank" rel="noreferrer">在微信读书继续读</a>
-            {book.highlightCount > 0 ? (
-              <>
-                <a className="weread-link" href={`/api/books/${encodeURIComponent(book.bookId)}/export`}>导出 Markdown</a>
-                <a className="weread-link" href={`/api/books/${encodeURIComponent(book.bookId)}/export?format=csv`}>导出 CSV</a>
-              </>
-            ) : null}
-          </p>
           {book.onShelf ? null : <p className="muted book-aside">不在书架上，划线仍保留。</p>}
         </div>
+        <p className="book-actions">
+          <a className="weread-link weread-link-primary" href={book.wereadUrl} target="_blank" rel="noreferrer">在微信读书继续读</a>
+          {book.highlightCount > 0 ? (
+            <>
+              <a className="weread-link weread-link-quiet" href={`/api/books/${encodeURIComponent(book.bookId)}/export`}>导出 Markdown</a>
+              <a className="weread-link weread-link-quiet" href={`/api/books/${encodeURIComponent(book.bookId)}/export?format=csv`}>导出 CSV</a>
+            </>
+          ) : null}
+        </p>
       </header>
       {book.chapters.length === 0 ? (
         <p className="state-message">这本书还没有划线。</p>
