@@ -112,6 +112,11 @@ export type AppDatabase = {
   ): void
   insertSync(record: SyncRecord, userId?: string): void
   latestSync(userId?: string): SyncRecord | null
+  listLinkedUserIds(): string[]
+  getShare(userId?: string): { enabled: boolean; token: string | null }
+  setShare(userId: string | undefined, share: { enabled: boolean; token: string }): void
+  disableShare(userId?: string): void
+  findEnabledShare(token: string): string | null
   close(): void
 }
 
@@ -220,6 +225,12 @@ export function openDatabase(filePath: string, secret: string | null = null): Ap
       book_id TEXT NOT NULL,
       sort_order INTEGER NOT NULL,
       PRIMARY KEY (user_id, group_name, book_id)
+    );
+    CREATE TABLE IF NOT EXISTS shelf_shares (
+      user_id TEXT PRIMARY KEY,
+      token TEXT NOT NULL UNIQUE,
+      enabled INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS sync_runs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -622,6 +633,34 @@ export function openDatabase(filePath: string, secret: string | null = null): Ap
         message: row.message,
         errors: JSON.parse(row.errors_json) as SyncRecord['errors'],
       }
+    },
+    listLinkedUserIds() {
+      const rows = sqlite.prepare(
+        `SELECT user_id FROM weread_accounts WHERE api_key_enc IS NOT NULL AND length(api_key_enc) > 0`,
+      ).all() as Array<{ user_id: string }>
+      return rows.map((row) => row.user_id)
+    },
+    getShare(userId?: string) {
+      const row = sqlite.prepare<[string], { token: string; enabled: number }>(
+        'SELECT token, enabled FROM shelf_shares WHERE user_id = ?',
+      ).get(uid(userId))
+      return { enabled: row?.enabled === 1, token: row?.token ?? null }
+    },
+    setShare(userId, share) {
+      sqlite.prepare(`
+        INSERT INTO shelf_shares (user_id, token, enabled, created_at)
+        VALUES (?, ?, ?, datetime('now'))
+        ON CONFLICT(user_id) DO UPDATE SET token = excluded.token, enabled = excluded.enabled
+      `).run(uid(userId), share.token, share.enabled ? 1 : 0)
+    },
+    disableShare(userId?: string) {
+      sqlite.prepare('UPDATE shelf_shares SET enabled = 0 WHERE user_id = ?').run(uid(userId))
+    },
+    findEnabledShare(token: string) {
+      const row = sqlite.prepare<[string], { user_id: string }>(
+        'SELECT user_id FROM shelf_shares WHERE token = ? AND enabled = 1',
+      ).get(token)
+      return row?.user_id ?? null
     },
     close() {
       sqlite.close()

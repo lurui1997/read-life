@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createApp } from '../src/server/app'
+import { AUTO_SYNC_MS, createApp } from '../src/server/app'
 import { groupBooks } from '../src/server/shelf'
 import { createWereadClient, SKILL_VERSION } from '../src/server/weread'
 import { fakeWeread, highlights, localTimestamp, progress, shelfBook, tempDb } from './helpers'
@@ -251,6 +251,105 @@ describe('同步记录给页面', () => {
     const body = await (await app.request('/api/sync')).text()
     expect(body).not.toContain('secret-key')
     expect(JSON.parse(body).last.shelfCount).toBe(1)
+    expect(JSON.parse(body).auto.intervalMs).toBe(AUTO_SYNC_MS)
+    db.close()
+  })
+})
+
+describe('每小时自动更新', () => {
+  it('超过一小时会自动开始，刚同步过只接受手动更新', async () => {
+    const db = tempDb()
+    db.setApiKey('k')
+    db.insertSync({
+      startedAt: new Date(Date.now() - 3 * AUTO_SYNC_MS).toISOString(),
+      finishedAt: new Date(Date.now() - 2 * AUTO_SYNC_MS).toISOString(),
+      shelfCount: 0,
+      updated: 0,
+      skipped: 0,
+      failed: 0,
+      message: '',
+      errors: [],
+    })
+    let release: () => void = () => {}
+    let gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let shelfCalls = 0
+    const app = createApp({
+      db,
+      createClient: () =>
+        fakeWeread({
+          '/shelf/sync': async () => {
+            shelfCalls += 1
+            await gate
+            return { books: [] }
+          },
+          '/user/notebooks': () => ({ books: [], hasMore: 0 }),
+        }),
+    })
+    app.tickAutoSync()
+    expect(shelfCalls).toBe(1)
+    app.tickAutoSync()
+    expect(shelfCalls).toBe(1)
+    release()
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect((await (await app.request('/api/sync')).json()).running).toBe(false)
+    app.tickAutoSync()
+    expect(shelfCalls).toBe(1)
+    gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const manual = await app.request('/api/sync', { method: 'POST' })
+    expect((await manual.json()).running).toBe(true)
+    expect(shelfCalls).toBe(2)
+    release()
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    db.close()
+  })
+})
+
+describe('分享书架', () => {
+  it('打开后别人不用登录也能看，关闭后链接失效', async () => {
+    const db = tempDb()
+    const app = createApp({ db, createClient: () => fakeWeread({}), authRequired: true })
+    const registered = await app.request('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'reader', email: 'a@b.co', password: 'password1' }),
+    })
+    const cookie = (registered.headers.get('set-cookie') ?? '').split(';')[0] ?? ''
+    const userId = (await registered.json()).id as string
+    db.setApiKey('secret-key', userId)
+    db.upsertShelfBook(shelfBook({ bookId: 's1', title: '公开的书' }), userId)
+    db.upsertShelfBook(shelfBook({ bookId: 'other', title: '别人的书' }), 'someone-else')
+    const denied = await app.request('/api/share')
+    expect(denied.status).toBe(401)
+
+    const opened = await app.request('/api/share', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ enabled: true }),
+    })
+    const share = await opened.json() as { enabled: boolean; path: string }
+    expect(share.enabled).toBe(true)
+    const token = share.path.slice('/s/'.length)
+    const pub = await app.request(`/api/public/shelves/${token}`)
+    expect(pub.status).toBe(200)
+    const body = await pub.text()
+    expect(body).toContain('公开的书')
+    expect(body).toContain('reader')
+    expect(body).not.toContain('别人的书')
+    expect(body).not.toContain('secret-key')
+
+    const detail = await app.request(`/api/public/shelves/${token}/books/s1`)
+    expect((await detail.json()).title).toBe('公开的书')
+
+    await app.request('/api/share', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ enabled: false }),
+    })
+    expect((await app.request(`/api/public/shelves/${token}`)).status).toBe(404)
     db.close()
   })
 })

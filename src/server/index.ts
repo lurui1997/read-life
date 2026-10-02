@@ -49,6 +49,9 @@ function startBackgroundCatalogRefresh() {
 }
 
 startBackgroundCatalogRefresh()
+const autoSyncTimer = setInterval(() => app.tickAutoSync(), 60_000)
+autoSyncTimer.unref()
+app.tickAutoSync()
 const production = process.env.NODE_ENV === 'production'
 
 if (production) {

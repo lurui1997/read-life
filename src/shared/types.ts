@@ -16,12 +16,24 @@ export type SyncRecord = {
 
 export type SyncPhase = 'shelf' | 'notes' | 'books'
 
+export type SyncRecent = {
+  bookId: string
+  title: string
+  outcome: 'updated' | 'failed'
+}
+
 export type SyncStatus = {
   running: boolean
   last: SyncRecord | null
   done: number
   total: number
   phase: SyncPhase | null
+  notesSeen: number
+  recent: SyncRecent[]
+  auto: {
+    intervalMs: number
+    nextAt: string | null
+  }
 }
 
 export type BookSummary = {

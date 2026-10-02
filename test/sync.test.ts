@@ -338,7 +338,10 @@ describe('同步', () => {
       '/book/bookmarklist': () => highlights('p2', [{ bookmarkId: 'x', chapterUid: 1, markText: '页', range: '1-2' }], [{ chapterUid: 1, chapterIdx: 1, title: '一' }]),
     })
     await runSync(db, client, { force: false })
-    expect(client.calls.filter((call) => call.apiName === '/user/notebooks').map((call) => call.params.lastSort)).toEqual([undefined, 11])
+    expect(client.calls.filter((call) => call.apiName === '/user/notebooks').map((call) => call.params)).toEqual([
+      { count: 100 },
+      { count: 100, lastSort: 11 },
+    ])
     expect(db.getBook('p2')?.savedNoteCount).toBe(4)
     db.close()
   })
@@ -375,6 +378,35 @@ describe('同步', () => {
     expect(attempts).toBe(3)
     expect(record.failed).toBe(0)
     expect(db.getBook('695233')?.progress).toBe(4)
+    db.close()
+  })
+
+  it('同一本书的进度和划线同时发出，写完会通知页面', async () => {
+    const db = tempDb()
+    let inflight = 0
+    let maxInflight = 0
+    async function hold<T>(value: T): Promise<T> {
+      inflight += 1
+      maxInflight = Math.max(maxInflight, inflight)
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      inflight -= 1
+      return value
+    }
+    const client = fakeWeread({
+      '/shelf/sync': () => ({ books: [shelfBook({ bookId: '695233', title: '三体' })] }),
+      '/user/notebooks': () => notebookPage([{ bookId: '695233', noteCount: 1, sort: 1 }]),
+      '/book/getprogress': () => hold(progress(10, 10)),
+      '/book/bookmarklist': () => hold(highlights('695233', [{ bookmarkId: 'h', chapterUid: 1, markText: '句', range: '1-2' }], [{ chapterUid: 1, chapterIdx: 1, title: '一' }])),
+    })
+    const outcomes: string[] = []
+    await runSync(db, client, {
+      force: false,
+      onBook(event) {
+        outcomes.push(`${event.title}:${event.outcome}`)
+      },
+    })
+    expect(maxInflight).toBe(2)
+    expect(outcomes).toEqual(['三体:updated'])
     db.close()
   })
 })

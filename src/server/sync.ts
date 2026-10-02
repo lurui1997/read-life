@@ -26,7 +26,8 @@ type ChapterDraft = {
   title: string
 }
 
-const SYNC_CONCURRENCY = 8
+const SYNC_CONCURRENCY = 16
+const NOTEBOOK_PAGE = 100
 
 type ArchiveGroup = {
   name: string
@@ -50,16 +51,17 @@ export async function runSync(
     force: boolean
     userId?: string
     onProgress?: (done: number, total: number, phase: 'shelf' | 'notes' | 'books') => void
+    onNotes?: (seen: number) => void
+    onBook?: (event: { bookId: string; title: string; outcome: 'updated' | 'skipped' | 'failed' }) => void
   },
 ): Promise<SyncRecord> {
   const startedAt = new Date().toISOString()
   try {
     options.onProgress?.(0, 0, 'shelf')
-    const shelf = await fetchShelf(client)
-    options.onProgress?.(0, 0, 'notes')
-    const noteCounts = await fetchNoteCounts(client, (seen) => {
-      options.onProgress?.(seen, 0, 'notes')
-    })
+    const [shelf, noteCounts] = await Promise.all([
+      fetchShelf(client),
+      fetchNoteCounts(client, (seen) => options.onNotes?.(seen)),
+    ])
     applyShelf(db, shelf.books, shelf.archive, options.userId)
     options.onProgress?.(0, shelf.books.length, 'books')
     const tally = { updated: 0, skipped: 0, failed: 0, errors: [] as SyncRecord['errors'] }
@@ -67,6 +69,8 @@ export async function runSync(
     await eachBook(shelf.books, async (book) => {
       const outcome = await syncOneBook(db, client, book, noteCounts.get(book.bookId) ?? 0, options.force, options.userId)
       tally.errors.push(...outcome.errors)
+      const kind = outcome.failed ? 'failed' : outcome.wrote ? 'updated' : 'skipped'
+      options.onBook?.({ bookId: book.bookId, title: book.title, outcome: kind })
       if (outcome.failed) tally.failed += 1
       else if (outcome.wrote) tally.updated += 1
       else tally.skipped += 1
@@ -121,11 +125,12 @@ async function syncOneBook(
   const errors: SyncRecord['errors'] = []
   let wrote = false
 
-  const progress = await syncProgress(db, client, book, stored?.progressCursor ?? { kind: 'never' }, force, userId)
+  const [progress, highlights] = await Promise.all([
+    syncProgress(db, client, book, stored?.progressCursor ?? { kind: 'never' }, force, userId),
+    syncHighlights(db, client, book.bookId, noteCount, stored, force, userId),
+  ])
   if (progress === 'write') wrote = true
   if (progress === 'fail') errors.push({ bookId: book.bookId, message: '进度同步失败' })
-
-  const highlights = await syncHighlights(db, client, book.bookId, noteCount, stored, force, userId)
   if (highlights === 'write') wrote = true
   if (highlights === 'fail') errors.push({ bookId: book.bookId, message: '划线同步失败' })
 
@@ -265,7 +270,7 @@ async function fetchNoteCounts(client: WereadClient, onSeen?: (seen: number) => 
   const counts = new Map<string, number>()
   let lastSort: number | undefined
   for (let page = 0; page < 200; page += 1) {
-    const params: Record<string, unknown> = { count: 20 }
+    const params: Record<string, unknown> = { count: NOTEBOOK_PAGE }
     if (lastSort !== undefined) params.lastSort = lastSort
     const data = (await client.call('/user/notebooks', params)) as { books?: unknown; hasMore?: unknown }
     if (!Array.isArray(data.books)) throw new WereadError('笔记本响应缺少 books')

@@ -100,3 +100,26 @@ export function pollWereadLogin(loginId: string) {
 export function unlinkWeread() {
   return request<{ linked: boolean }>('/api/weread/unlink', { method: 'POST' })
 }
+
+export type ShareStatus = {
+  enabled: boolean
+  path: string | null
+}
+
+export function getShare() {
+  return request<ShareStatus>('/api/share')
+}
+
+export function saveShare(body: { enabled: boolean; rotate?: boolean }) {
+  return request<ShareStatus>('/api/share', { method: 'PUT', body: JSON.stringify(body) })
+}
+
+export type PublicShelf = BooksResponse & { owner: string }
+
+export function getPublicShelf(token: string) {
+  return request<PublicShelf>(`/api/public/shelves/${encodeURIComponent(token)}`)
+}
+
+export function getPublicBook(token: string, bookId: string) {
+  return request<BookDetail>(`/api/public/shelves/${encodeURIComponent(token)}/books/${encodeURIComponent(bookId)}`)
+}

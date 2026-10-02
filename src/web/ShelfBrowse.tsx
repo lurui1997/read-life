@@ -12,6 +12,9 @@ type ShelfBrowseProps = {
   storageKey: string
   randomOrder?: boolean
   shuffleSeed?: number
+  bookPath?: (bookId: string) => string
+  externalPath?: (bookId: string) => string
+  freshIds?: ReadonlySet<string>
 }
 
 export function ShelfBrowse({
@@ -21,6 +24,9 @@ export function ShelfBrowse({
   storageKey,
   randomOrder = false,
   shuffleSeed = 0,
+  bookPath,
+  externalPath,
+  freshIds,
 }: ShelfBrowseProps) {
   const [selectedKey, setSelectedKey] = useState<string>(() => readStoredKey(storageKey, sections))
   const [query, setQuery] = useState('')
@@ -178,6 +184,9 @@ export function ShelfBrowse({
                     key={book.bookId}
                     book={book}
                     subtitle={variant === 'category' && book.category ? book.category : null}
+                    href={bookPath?.(book.bookId)}
+                    externalHref={externalPath?.(book.bookId)}
+                    fresh={freshIds?.has(book.bookId)}
                   />
                 ))}
               </div>

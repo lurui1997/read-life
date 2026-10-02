@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { getBook, getBooks, getEncounter, getKeyStatus, getMe, getSync, loginAccount, logoutAccount, pollWereadLogin, registerAccount, saveKey, startSync, startWereadLogin, unlinkWeread, type AuthMe } from './api'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { getBook, getBooks, getEncounter, getKeyStatus, getMe, getPublicBook, getPublicShelf, getShare, getSync, loginAccount, logoutAccount, pollWereadLogin, registerAccount, saveKey, saveShare, startSync, startWereadLogin, unlinkWeread, type AuthMe, type ShareStatus } from './api'
 import { formatDuration, formatProgress } from './format'
 import { BookCard } from './BookCard'
 import { ReadingMap } from './ReadingMap'
@@ -10,6 +10,7 @@ import { SurpriseToolbar } from './SurpriseToolbar'
 import { applyRandomOrder, buildShelfSections, type ShelfMode } from './shelf-views'
 import { bookmarkIdFromHash, encounterHref, type Encounter } from '../shared/encounter'
 import type { BookDetail, BooksResponse, SyncStatus } from '../shared/types'
+import { applyTheme, readThemePreference, themeOptions, writeThemePreference, type ThemePreference } from './theme'
 
 type Route =
   | { name: 'shelf' }
@@ -18,9 +19,18 @@ type Route =
   | { name: 'register' }
   | { name: 'book'; bookId: string }
   | { name: 'map' }
+  | { name: 'share'; token: string; bookId: string | null }
 
 function readRoute(): Route {
   const path = window.location.pathname
+  const share = path.match(/^\/s\/([^/]+)(?:\/book\/(.+))?$/)
+  if (share?.[1]) {
+    return {
+      name: 'share',
+      token: decodeURIComponent(share[1]),
+      bookId: share[2] ? decodeURIComponent(share[2]) : null,
+    }
+  }
   if (path === '/settings') return { name: 'settings' }
   if (path === '/login') return { name: 'login' }
   if (path === '/register') return { name: 'register' }
@@ -38,6 +48,8 @@ export function App() {
   const shelfVisible = useRef(false)
   const [notifySyncAt, setNotifySyncAt] = useState<string | null>(null)
   const [me, setMe] = useState<AuthMe | null>(null)
+  const [liveTick, setLiveTick] = useState(0)
+  const [theme, setTheme] = useState<ThemePreference>(() => readThemePreference())
 
   useEffect(() => {
     void getMe().then((next) => {
@@ -72,7 +84,16 @@ export function App() {
   }, [route.name])
 
   useEffect(() => {
-    if (route.name === 'login' || route.name === 'register') return
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    const onChange = () => {
+      if (readThemePreference() === 'system') applyTheme('system')
+    }
+    media.addEventListener('change', onChange)
+    return () => media.removeEventListener('change', onChange)
+  }, [])
+
+  useEffect(() => {
+    if (route.name === 'login' || route.name === 'register' || route.name === 'share') return
     let stop = false
     async function poll() {
       const status = await getSync()
@@ -96,6 +117,12 @@ export function App() {
       window.clearInterval(timer)
     }
   }, [route.name])
+
+  useEffect(() => {
+    if (!sync?.running || sync.phase !== 'books') return
+    const timer = window.setInterval(() => setLiveTick((tick) => tick + 1), 2000)
+    return () => window.clearInterval(timer)
+  }, [sync?.running, sync?.phase])
 
   function go(href: string) {
     window.history.pushState({}, '', href)
@@ -125,7 +152,19 @@ export function App() {
           折角
         </a>
         <nav className={minimalNav ? 'nav nav-minimal' : 'nav'}>
-          {me?.authRequired && !me.user ? (
+          <button
+            type="button"
+            className="nav-text theme-toggle"
+            onClick={() => {
+              const order: ThemePreference[] = ['light', 'dark', 'system']
+              const next = order[(order.indexOf(theme) + 1) % order.length] ?? 'system'
+              setTheme(next)
+              writeThemePreference(next)
+            }}
+          >
+            {themeOptions.find((item) => item.id === theme)?.label ?? '跟随系统'}
+          </button>
+          {route.name === 'share' ? null : me?.authRequired && !me.user ? (
             <a className="nav-text" href="/login" onClick={(event) => { event.preventDefault(); go('/login') }}>登录</a>
           ) : (
             <>
@@ -142,13 +181,18 @@ export function App() {
         </nav>
       </header>
       {notice ? <p className="error">{notice}</p> : null}
-      <SyncBanner status={sync} notifySyncAt={notifySyncAt} />
+      {route.name === 'share' ? null : <SyncBanner status={sync} notifySyncAt={notifySyncAt} />}
       {route.name === 'login' ? <AuthForm mode="login" onDone={() => go('/')} /> : null}
       {route.name === 'register' ? <AuthForm mode="register" onDone={() => go('/')} /> : null}
       {route.name === 'settings' ? (
         <Settings
           sync={sync}
           libraryVersion={libraryVersion}
+          themePreference={theme}
+          onTheme={(next) => {
+            setTheme(next)
+            writeThemePreference(next)
+          }}
           onSync={syncNow}
           onBack={() => go('/')}
           onOpenGuide={() => {
@@ -161,7 +205,24 @@ export function App() {
           }}
         />
       ) : null}
-      {route.name === 'shelf' ? <Shelf libraryVersion={libraryVersion} syncing={sync?.running === true} /> : null}
+      {route.name === 'shelf' ? (
+        <Shelf
+          libraryVersion={libraryVersion}
+          liveTick={liveTick}
+          syncing={sync?.running === true}
+          freshIds={sync?.recent.map((item) => item.bookId) ?? []}
+        />
+      ) : null}
+      {route.name === 'share' && route.bookId == null ? <ShareShelf token={route.token} /> : null}
+      {route.name === 'share' && route.bookId != null ? (
+        <BookPage
+          bookId={route.bookId}
+          libraryVersion={libraryVersion}
+          shared
+          shareToken={route.token}
+          onBack={() => go(`/s/${encodeURIComponent(route.token)}`)}
+        />
+      ) : null}
       {route.name === 'map' ? <ReadingMap onClose={() => go('/')} onOpen={(href) => go(href)} /> : null}
       {route.name === 'book' ? (
         <BookPage bookId={route.bookId} libraryVersion={libraryVersion} onBack={() => go('/')} />
@@ -189,12 +250,20 @@ function writeDismissedSync(finishedAt: string) {
 }
 
 function syncLine(status: SyncStatus): string {
+  const latest = status.recent?.[0]
+  const just = latest
+    ? latest.outcome === 'failed'
+      ? `最近失败：《${latest.title || '未命名'}》`
+      : `刚刚更新：《${latest.title || '未命名'}》`
+    : ''
   if (status.total > 0) {
     const percent = Math.round((status.done / status.total) * 100)
-    return `正在同步进度和划线，${status.done} / ${status.total}（${percent}%）`
+    const head = `正在同步进度和划线，${status.done} / ${status.total}（${percent}%）`
+    return just ? `${head}。${just}` : head
   }
-  if (status.phase === 'notes') {
-    return status.done > 0 ? `正在读取划线目录，已看到 ${status.done} 本` : '正在读取划线目录'
+  if (status.phase === 'notes' || status.notesSeen > 0) {
+    const seen = status.phase === 'notes' ? status.done : status.notesSeen
+    return seen > 0 ? `正在读取划线目录，已看到 ${seen} 本` : '正在读取划线目录'
   }
   return '正在读取书架'
 }
@@ -219,6 +288,13 @@ function SyncBanner({ status, notifySyncAt }: { status: SyncStatus | null; notif
         >
           <span style={known ? { width: `${percent}%` } : undefined} />
         </div>
+        {(status.recent?.length ?? 0) > 0 ? (
+          <ul className="sync-recent">
+            {status.recent.slice(0, 3).map((item) => (
+              <li key={item.bookId}>{item.outcome === 'failed' ? '失败' : '已更新'} · {item.title || '未命名'}</li>
+            ))}
+          </ul>
+        ) : null}
       </div>
     )
   }
@@ -299,8 +375,28 @@ function writeShelfCache(data: BooksResponse) {
   }
 }
 
-function Shelf({ libraryVersion, syncing }: { libraryVersion: number; syncing: boolean }) {
-  const [data, setData] = useState<BooksResponse | null>(readShelfCache)
+function Shelf({
+  libraryVersion,
+  liveTick = 0,
+  syncing,
+  freshIds = [],
+  loadBooks,
+  bookPath,
+  externalPath,
+  emptyMessage,
+}: {
+  libraryVersion: number
+  liveTick?: number
+  syncing: boolean
+  freshIds?: string[]
+  loadBooks?: () => Promise<BooksResponse>
+  bookPath?: (bookId: string) => string
+  externalPath?: (bookId: string) => string
+  emptyMessage?: string
+}) {
+  const shared = Boolean(loadBooks)
+  const fresh = new Set(freshIds)
+  const [data, setData] = useState<BooksResponse | null>(shared ? null : readShelfCache)
   const [error, setError] = useState('')
   const [mode, setMode] = useState<ShelfMode>(readShelfMode)
   const [openSection, setOpenSection] = useState<string | null>(null)
@@ -324,16 +420,24 @@ function Shelf({ libraryVersion, syncing }: { libraryVersion: number; syncing: b
 
   useEffect(() => {
     let stop = false
-    void getBooks()
+    void (loadBooks ?? getBooks)()
       .then((next) => {
         if (stop) return
         setData(next)
         setError('')
-        writeShelfCache(next)
+        if (!shared) writeShelfCache(next)
       })
       .catch((reason: Error) => {
         if (!stop) setError(reason.message)
       })
+    return () => {
+      stop = true
+    }
+  }, [libraryVersion, liveTick, loadBooks, shared])
+
+  useEffect(() => {
+    if (shared) return
+    let stop = false
     void getEncounter()
       .then((next) => {
         if (!stop) setEncounters(next.encounters)
@@ -344,7 +448,7 @@ function Shelf({ libraryVersion, syncing }: { libraryVersion: number; syncing: b
     return () => {
       stop = true
     }
-  }, [libraryVersion])
+  }, [libraryVersion, shared])
 
   useEffect(() => {
     localStorage.setItem(shelfModeKey, mode)
@@ -381,7 +485,7 @@ function Shelf({ libraryVersion, syncing }: { libraryVersion: number; syncing: b
   }
   if (data.books.length === 0) {
     if (syncing) return <p className="state-message">书还在路上，进度见上方。</p>
-    return <p className="state-message">书架还是空的。到设置里绑定微信读书，再同步一次。</p>
+    return <p className="state-message">{emptyMessage ?? '书架还是空的。到设置里绑定微信读书，再同步一次。'}</p>
   }
 
   const baseSections = buildShelfSections(data.books, data.archiveGroups, mode)
@@ -394,7 +498,7 @@ function Shelf({ libraryVersion, syncing }: { libraryVersion: number; syncing: b
       : baseSections
   return (
     <div className="shelf">
-      {encounters.length > 0 ? (
+      {!shared && encounters.length > 0 ? (
         <section className="encounter-block" aria-label="随机划线">
           {encounters.map((encounter) => (
             <a className="encounter" href={encounterHref(encounter.bookId, encounter.bookmarkId)} key={encounter.bookmarkId}>
@@ -418,7 +522,7 @@ function Shelf({ libraryVersion, syncing }: { libraryVersion: number; syncing: b
           </button>
         </section>
       ) : null}
-      {showcaseVisible ? (
+      {!shared && showcaseVisible ? (
         <FeatureShowcase
           onDismiss={() => setShowcaseVisible(false)}
           onTrySurprise={() => {
@@ -463,9 +567,12 @@ function Shelf({ libraryVersion, syncing }: { libraryVersion: number; syncing: b
           variant={mode}
           sections={baseSections}
           totalBooks={data.books.length}
-          storageKey={`read-life.browse.${mode}`}
+          storageKey={`read-life.browse.${mode}${shared ? '.share' : ''}`}
           randomOrder={shuffleOn}
           shuffleSeed={shuffleSeed}
+          bookPath={bookPath}
+          externalPath={externalPath}
+          freshIds={fresh}
         />
       ) : (
         sections.map((section) => {
@@ -489,7 +596,13 @@ function Shelf({ libraryVersion, syncing }: { libraryVersion: number; syncing: b
                 <div className="section-body">
                   <div className="grid">
                     {books.map((book) => (
-                      <BookCard book={book} key={book.bookId} />
+                      <BookCard
+                        book={book}
+                        key={book.bookId}
+                        href={bookPath?.(book.bookId)}
+                        externalHref={externalPath?.(book.bookId)}
+                        fresh={fresh.has(book.bookId)}
+                      />
                     ))}
                   </div>
                   <LoadMoreSentinel
@@ -514,17 +627,22 @@ function BookPage({
   bookId,
   libraryVersion,
   onBack,
+  shared = false,
+  shareToken,
 }: {
   bookId: string
   libraryVersion: number
   onBack: () => void
+  shared?: boolean
+  shareToken?: string
 }) {
   const [book, setBook] = useState<BookDetail | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    void getBook(bookId).then(setBook).catch((reason: Error) => setError(reason.message))
-  }, [bookId, libraryVersion])
+    const request = shareToken ? getPublicBook(shareToken, bookId) : getBook(bookId)
+    void request.then(setBook).catch((reason: Error) => setError(reason.message))
+  }, [bookId, libraryVersion, shareToken])
 
   useEffect(() => {
     if (!book) return
@@ -564,7 +682,7 @@ function BookPage({
         </div>
         <p className="book-actions">
           <a className="weread-link weread-link-primary" href={book.wereadUrl} target="_blank" rel="noreferrer">在微信读书继续读</a>
-          {book.highlightCount > 0 ? (
+          {!shared && book.highlightCount > 0 ? (
             <>
               <a className="weread-link weread-link-quiet" href={`/api/books/${encodeURIComponent(book.bookId)}/export`}>导出 Markdown</a>
               <a className="weread-link weread-link-quiet" href={`/api/books/${encodeURIComponent(book.bookId)}/export?format=csv`}>导出 CSV</a>
@@ -743,15 +861,133 @@ function WereadBind({
   )
 }
 
+function autoSyncLine(sync: SyncStatus | null): string {
+  if (!sync?.auto) return '每小时自动更新。也可以随时手动更新。'
+  if (sync.running) return '正在更新。结束后大约一小时会再自动更新一次。'
+  if (!sync.auto.nextAt) return '绑定微信读书后，每小时自动更新。'
+  const next = new Date(sync.auto.nextAt)
+  if (Number.isNaN(next.getTime()) || next.getTime() <= Date.now()) return '每小时自动更新。这一轮即将开始。'
+  const clock = next.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  return `每小时自动更新。下次大约 ${clock}。也可以随时手动更新。`
+}
+
+function ThemePanel({ preference, onChange }: { preference: ThemePreference; onChange: (next: ThemePreference) => void }) {
+  return (
+    <section className="settings-panel">
+      <h2>显示</h2>
+      <p className="muted">白天、夜间，或跟着系统切换。</p>
+      <div className="theme-switch" role="group" aria-label="显示模式">
+        {themeOptions.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={preference === item.id ? 'primary' : 'settings-secondary'}
+            aria-pressed={preference === item.id}
+            onClick={() => onChange(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function SharePanel() {
+  const [share, setShare] = useState<ShareStatus | null>(null)
+  const [error, setError] = useState('')
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    void getShare().then(setShare).catch((reason: Error) => setError(reason.message))
+  }, [])
+
+  async function update(enabled: boolean, rotate = false) {
+    setError('')
+    setCopied(false)
+    const next = await saveShare({ enabled, rotate })
+    setShare(next)
+  }
+
+  const link = share?.path ? `${window.location.origin}${share.path}` : ''
+
+  return (
+    <section className="settings-panel">
+      <h2>分享书架</h2>
+      <p className="muted">打开后，知道链接的人可以查看你的书架和划线。可以随时关闭。</p>
+      {share?.enabled && link ? (
+        <div className="share-link">
+          <input readOnly value={link} aria-label="分享链接" onFocus={(event) => event.currentTarget.select()} />
+          <button
+            type="button"
+            className="settings-secondary"
+            onClick={() => {
+              void navigator.clipboard.writeText(link).then(() => setCopied(true)).catch(() => setCopied(false))
+            }}
+          >
+            {copied ? '已复制' : '复制'}
+          </button>
+        </div>
+      ) : null}
+      <div className="settings-actions">
+        <button type="button" id="share-toggle" className="primary" onClick={() => void update(!share?.enabled).catch((reason: Error) => setError(reason.message))}>
+          {share?.enabled ? '关闭分享' : '生成分享链接'}
+        </button>
+        {share?.enabled ? (
+          <button type="button" className="settings-secondary" onClick={() => void update(true, true).catch((reason: Error) => setError(reason.message))}>
+            更换链接
+          </button>
+        ) : null}
+      </div>
+      {error ? <p className="error">{error}</p> : null}
+    </section>
+  )
+}
+
+function ShareShelf({ token }: { token: string }) {
+  const [owner, setOwner] = useState('')
+  const loadBooks = useCallback(async () => {
+    const data = await getPublicShelf(token)
+    setOwner(data.owner)
+    return data
+  }, [token])
+  const bookPath = useCallback(
+    (bookId: string) => `/s/${encodeURIComponent(token)}/book/${encodeURIComponent(bookId)}`,
+    [token],
+  )
+  const externalPath = useCallback(
+    (bookId: string) => `/api/public/shelves/${encodeURIComponent(token)}/books/${encodeURIComponent(bookId)}/weread-redirect`,
+    [token],
+  )
+
+  return (
+    <>
+      <p className="share-kicker">{owner ? `${owner}的书架` : '分享的书架'}</p>
+      <Shelf
+        libraryVersion={0}
+        syncing={false}
+        loadBooks={loadBooks}
+        bookPath={bookPath}
+        externalPath={externalPath}
+        emptyMessage="这套书架还没有书。"
+      />
+    </>
+  )
+}
+
 function Settings({
   sync,
   libraryVersion,
+  themePreference,
+  onTheme,
   onSync,
   onBack,
   onOpenGuide,
 }: {
   sync: SyncStatus | null
   libraryVersion: number
+  themePreference: ThemePreference
+  onTheme: (next: ThemePreference) => void
   onSync: (force: boolean) => Promise<void>
   onBack: () => void
   onOpenGuide: () => void
@@ -822,6 +1058,8 @@ function Settings({
         }}
       />
 
+      <ThemePanel preference={themePreference} onChange={onTheme} />
+
       <section className="settings-panel">
         <h2>我的书架</h2>
         {bookCount != null ? (
@@ -837,14 +1075,20 @@ function Settings({
         ) : null}
         <div className="settings-sync">
           <h2>同步</h2>
+          <p className="muted settings-meta">{autoSyncLine(sync)}</p>
           <div className="settings-actions">
             <button type="button" className="primary" onClick={() => void onSync(false)} disabled={sync?.running}>
-              {sync?.running ? '同步中…' : '同步'}
+              {sync?.running ? '同步中…' : '立即更新'}
             </button>
             <button type="button" className="settings-secondary" onClick={() => void onSync(true)} disabled={sync?.running}>
               强制同步
             </button>
           </div>
+          {sync?.running && sync.recent?.[0] ? (
+            <p className="muted settings-meta">
+              {sync.recent[0].outcome === 'failed' ? '最近失败' : '刚刚更新'}：《{sync.recent[0].title || '未命名'}》
+            </p>
+          ) : null}
           {sync?.running && sync.total > 0 ? (
             <p className="muted settings-meta">进度 {sync.done} / {sync.total}</p>
           ) : null}
@@ -878,6 +1122,8 @@ function Settings({
         {message ? <p>{message}</p> : null}
         {error ? <p className="error">{error}</p> : null}
       </form>
+
+      <SharePanel />
 
       <section className="settings-panel">
         <h2>功能导览</h2>

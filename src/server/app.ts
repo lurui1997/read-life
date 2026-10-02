@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { Hono } from 'hono'
 import { compress } from 'hono/compress'
 import { LOCAL_USER_ID, type AppDatabase } from './db'
@@ -14,6 +14,16 @@ import type { SyncStatus } from '../shared/types'
 
 const SESSION_COOKIE = 'rl_session'
 const SESSION_DAYS = 14
+export const AUTO_SYNC_MS = 60 * 60 * 1000
+
+type SyncState = {
+  running: boolean
+  done: number
+  total: number
+  phase: SyncStatus['phase']
+  notesSeen: number
+  recent: SyncStatus['recent']
+}
 
 export type AppOptions = {
   db: AppDatabase
@@ -21,8 +31,6 @@ export type AppOptions = {
   authRequired?: boolean
   cookieSecure?: boolean
 }
-
-type SyncState = { running: boolean; done: number; total: number; phase: SyncStatus['phase'] }
 
 type AppEnv = { Variables: { userId: string } }
 
@@ -34,9 +42,16 @@ export function createApp(options: AppOptions) {
   const registerHits = new Map<string, number[]>()
 
   function stateFor(userId: string): SyncState {
-    const current = syncStates.get(userId) ?? { running: false, done: 0, total: 0, phase: null }
+    const current = syncStates.get(userId) ?? { running: false, done: 0, total: 0, phase: null, notesSeen: 0, recent: [] }
     syncStates.set(userId, current)
     return current
+  }
+
+  function nextAutoAt(userId: string, now = Date.now()): string | null {
+    if (!db.getApiKey(userId)) return null
+    const last = db.latestSync(userId)
+    if (!last) return new Date(now).toISOString()
+    return new Date(Date.parse(last.finishedAt) + AUTO_SYNC_MS).toISOString()
   }
 
   function status(userId: string): SyncStatus {
@@ -47,6 +62,9 @@ export function createApp(options: AppOptions) {
       done: state.done,
       total: state.total,
       phase: state.phase,
+      notesSeen: state.notesSeen,
+      recent: state.recent,
+      auto: { intervalMs: AUTO_SYNC_MS, nextAt: nextAutoAt(userId) },
       last: last ? { ...last, errors: last.errors.slice(0, 3) } : null,
     }
   }
@@ -61,37 +79,43 @@ export function createApp(options: AppOptions) {
     state.done = 0
     state.total = 0
     state.phase = 'shelf'
+    state.notesSeen = 0
+    state.recent = []
     const client = createClient(apiKey)
+    const watch = {
+      onProgress(nextDone: number, nextTotal: number, phase: SyncStatus['phase']) {
+        state.done = nextDone
+        state.total = nextTotal
+        state.phase = phase
+        if (phase === 'shelf') state.recent = []
+      },
+      onNotes(seen: number) {
+        state.notesSeen = seen
+      },
+      onBook(event: { bookId: string; title: string; outcome: 'updated' | 'skipped' | 'failed' }) {
+        if (event.outcome === 'skipped') return
+        state.recent = [
+          { bookId: event.bookId, title: event.title, outcome: event.outcome },
+          ...state.recent.filter((item) => item.bookId !== event.bookId),
+        ].slice(0, 8)
+      },
+    }
     void (async () => {
       try {
-        const first = await runSync(db, client, {
-          force,
-          userId,
-          onProgress(nextDone, nextTotal, phase) {
-            state.done = nextDone
-            state.total = nextTotal
-            state.phase = phase
-          },
-        })
+        const first = await runSync(db, client, { force, userId, ...watch })
         if (first.failed > 0) {
           state.done = 0
           state.total = 0
           state.phase = 'shelf'
-          await runSync(db, client, {
-            force: false,
-            userId,
-            onProgress(nextDone, nextTotal, phase) {
-              state.done = nextDone
-              state.total = nextTotal
-              state.phase = phase
-            },
-          })
+          state.notesSeen = 0
+          await runSync(db, client, { force: false, userId, ...watch })
         }
       } finally {
         state.running = false
         state.done = 0
         state.total = 0
         state.phase = null
+        state.notesSeen = 0
       }
       void backfillBookMetadata(db, client, userId)
     })()
@@ -112,7 +136,7 @@ export function createApp(options: AppOptions) {
     const userId = session && session.expiresAt > new Date().toISOString() ? session.userId : ''
     c.set('userId', userId)
     const path = new URL(c.req.url).pathname
-    const open = path === '/api/auth/register' || path === '/api/auth/login' || path === '/api/auth/me'
+    const open = path === '/api/auth/register' || path === '/api/auth/login' || path === '/api/auth/me' || path.startsWith('/api/public/')
     if (path.startsWith('/api/') && !open && !userId) return c.json({ error: '请先登录' }, 401)
     await next()
   })
@@ -232,6 +256,50 @@ export function createApp(options: AppOptions) {
     return c.json(result)
   })
 
+  app.get('/api/share', (c) => c.json(shareView(db, c.get('userId'))))
+
+  app.put('/api/share', async (c) => {
+    const userId = c.get('userId')
+    const body = await c.req.json().catch(() => null) as { enabled?: unknown; rotate?: unknown } | null
+    if (body?.enabled === false) {
+      db.disableShare(userId)
+      return c.json(shareView(db, userId))
+    }
+    const current = db.getShare(userId)
+    const token = !current.token || body?.rotate === true ? randomBytes(16).toString('base64url') : current.token
+    db.setShare(userId, { enabled: true, token })
+    return c.json(shareView(db, userId))
+  })
+
+  app.get('/api/public/shelves/:token/books/:bookId/weread-redirect', (c) => {
+    const ownerId = db.findEnabledShare(c.req.param('token'))
+    if (!ownerId) return c.json({ error: '分享已关闭' }, 404)
+    const bookId = c.req.param('bookId')
+    const detail = db.getBookDetail(bookId, ownerId)
+    if (!detail?.onShelf) return c.json({ error: '未找到这本书' }, 404)
+    return c.redirect(wereadReaderUrl(bookId), 302)
+  })
+
+  app.get('/api/public/shelves/:token/books/:bookId', (c) => {
+    const ownerId = db.findEnabledShare(c.req.param('token'))
+    if (!ownerId) return c.json({ error: '分享已关闭' }, 404)
+    const detail = db.getBookDetail(c.req.param('bookId'), ownerId)
+    if (!detail?.onShelf) return c.json({ error: '未找到这本书' }, 404)
+    return c.json(detail)
+  })
+
+  app.get('/api/public/shelves/:token', (c) => {
+    const ownerId = db.findEnabledShare(c.req.param('token'))
+    if (!ownerId) return c.json({ error: '分享已关闭' }, 404)
+    const user = db.findUserById(ownerId)
+    const link = db.getWereadLink(ownerId)
+    return c.json({
+      owner: link.wrName || user?.username || '',
+      books: db.listOnShelf(ownerId),
+      archiveGroups: db.listArchiveGroups(ownerId),
+    })
+  })
+
   app.get('/api/books', (c) => {
     const userId = c.get('userId')
     return c.json({
@@ -280,7 +348,24 @@ export function createApp(options: AppOptions) {
     return c.json(detail)
   })
 
-  return app
+  return Object.assign(app, {
+    tickAutoSync(now = Date.now()) {
+      for (const userId of db.listLinkedUserIds()) {
+        const last = db.latestSync(userId)
+        const finished = last ? Date.parse(last.finishedAt) : 0
+        if (now - finished < AUTO_SYNC_MS) continue
+        startSync(userId, false)
+      }
+    },
+  })
+}
+
+function shareView(db: AppDatabase, userId: string) {
+  const share = db.getShare(userId)
+  return {
+    enabled: share.enabled,
+    path: share.enabled && share.token ? `/s/${share.token}` : null,
+  }
 }
 
 function writeSession(c: { header: (name: string, value: string) => void }, db: AppDatabase, userId: string, secure: boolean) {
