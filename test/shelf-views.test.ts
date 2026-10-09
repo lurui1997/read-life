@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyRandomOrder, buildShelfSections, pickRandomBook, shuffleBooks } from '../src/web/shelf-views'
+import { applyRandomOrder, buildShelfSections, filterShelfSections, pickRandomBook, shuffleBooks } from '../src/web/shelf-views'
 import type { BookSummary } from '../src/shared/types'
 
 function book(overrides: Partial<BookSummary> & Pick<BookSummary, 'bookId' | 'title'>): BookSummary {
@@ -64,6 +64,21 @@ describe('书架视图', () => {
       book({ bookId: '2', title: '二' }),
     ])
     expect(picked?.bookId).toMatch(/^[12]$/)
+  })
+
+  it('按书名或作者筛出书，分组名命中时保留整组', () => {
+    const sections = buildShelfSections(
+      [
+        book({ bookId: 'a', title: '原则', author: '瑞·达利欧', category: '经济理财' }),
+        book({ bookId: 'b', title: '人类简史', author: '尤瓦尔·赫拉利', category: '历史' }),
+      ],
+      [],
+      'category',
+    )
+    expect(filterShelfSections(sections, '原则').flatMap((section) => section.books.map((item) => item.bookId))).toEqual(['a'])
+    expect(filterShelfSections(sections, '赫拉利').flatMap((section) => section.books.map((item) => item.bookId))).toEqual(['b'])
+    expect(filterShelfSections(sections, '经济').flatMap((section) => section.books.map((item) => item.bookId))).toEqual(['a'])
+    expect(filterShelfSections(sections, '不存在')).toEqual([])
   })
 
   it('随机模式按进度分组', () => {

@@ -5,6 +5,8 @@ import { isStandaloneSentence, type EncounterCandidate } from '../shared/encount
 import type { MapQuote, MapSourceBook } from '../shared/reading-map'
 import type { BookDetail, BookSummary, Highlight, SyncRecord } from '../shared/types'
 import { normalizeProgress } from '../shared/progress'
+import type { ScopeKind, ThemeBoard, ThemeHighlightLine, ThemeScopeOption, ThemeWrite } from '../shared/themes'
+import { createThemeStore } from './theme-db'
 import { wereadReaderUrl } from './weread-url'
 import { openSeal, seal } from './secrets'
 
@@ -112,6 +114,25 @@ export type AppDatabase = {
   ): void
   insertSync(record: SyncRecord, userId?: string): void
   latestSync(userId?: string): SyncRecord | null
+  listLinkedUserIds(): string[]
+  getShare(userId?: string): { enabled: boolean; token: string | null }
+  setShare(userId: string | undefined, share: { enabled: boolean; token: string }): void
+  disableShare(userId?: string): void
+  findEnabledShare(token: string): string | null
+  listThemeScopes(now: Date, userId?: string): { categories: ThemeScopeOption[]; groups: ThemeScopeOption[]; recent: ThemeScopeOption }
+  getThemeBoard(kind: ScopeKind, key: string, now: Date, userId?: string): ThemeBoard
+  listThemeHighlights(kind: ScopeKind, key: string, themeId: string, now: Date, userId?: string): ThemeHighlightLine[]
+  clusterThemeScope(kind: ScopeKind, key: string, now: Date, userId?: string): ThemeBoard
+  renameTheme(themeId: string, name: string, userId?: string): ThemeWrite
+  mergeThemes(sourceId: string, targetId: string, userId?: string): ThemeWrite
+  moveThemeHighlight(input: {
+    kind: ScopeKind
+    key: string
+    bookmarkId: string
+    themeId: string | null
+    create: boolean
+    now: Date
+  }, userId?: string): ThemeWrite
   close(): void
 }
 
@@ -220,6 +241,34 @@ export function openDatabase(filePath: string, secret: string | null = null): Ap
       book_id TEXT NOT NULL,
       sort_order INTEGER NOT NULL,
       PRIMARY KEY (user_id, group_name, book_id)
+    );
+    CREATE TABLE IF NOT EXISTS themes (
+      user_id TEXT NOT NULL,
+      theme_id TEXT NOT NULL,
+      scope_kind TEXT NOT NULL,
+      scope_key TEXT NOT NULL,
+      name TEXT NOT NULL,
+      PRIMARY KEY (user_id, theme_id)
+    );
+    CREATE INDEX IF NOT EXISTS themes_scope ON themes (user_id, scope_kind, scope_key);
+    CREATE TABLE IF NOT EXISTS theme_highlights (
+      user_id TEXT NOT NULL,
+      theme_id TEXT NOT NULL,
+      bookmark_id TEXT NOT NULL,
+      PRIMARY KEY (user_id, theme_id, bookmark_id)
+    );
+    CREATE TABLE IF NOT EXISTS theme_scopes (
+      user_id TEXT NOT NULL,
+      scope_kind TEXT NOT NULL,
+      scope_key TEXT NOT NULL,
+      clustered_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, scope_kind, scope_key)
+    );
+    CREATE TABLE IF NOT EXISTS shelf_shares (
+      user_id TEXT PRIMARY KEY,
+      token TEXT NOT NULL UNIQUE,
+      enabled INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS sync_runs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -623,6 +672,35 @@ export function openDatabase(filePath: string, secret: string | null = null): Ap
         errors: JSON.parse(row.errors_json) as SyncRecord['errors'],
       }
     },
+    listLinkedUserIds() {
+      const rows = sqlite.prepare(
+        `SELECT user_id FROM weread_accounts WHERE api_key_enc IS NOT NULL AND length(api_key_enc) > 0`,
+      ).all() as Array<{ user_id: string }>
+      return rows.map((row) => row.user_id)
+    },
+    getShare(userId?: string) {
+      const row = sqlite.prepare<[string], { token: string; enabled: number }>(
+        'SELECT token, enabled FROM shelf_shares WHERE user_id = ?',
+      ).get(uid(userId))
+      return { enabled: row?.enabled === 1, token: row?.token ?? null }
+    },
+    setShare(userId, share) {
+      sqlite.prepare(`
+        INSERT INTO shelf_shares (user_id, token, enabled, created_at)
+        VALUES (?, ?, ?, datetime('now'))
+        ON CONFLICT(user_id) DO UPDATE SET token = excluded.token, enabled = excluded.enabled
+      `).run(uid(userId), share.token, share.enabled ? 1 : 0)
+    },
+    disableShare(userId?: string) {
+      sqlite.prepare('UPDATE shelf_shares SET enabled = 0 WHERE user_id = ?').run(uid(userId))
+    },
+    findEnabledShare(token: string) {
+      const row = sqlite.prepare<[string], { user_id: string }>(
+        'SELECT user_id FROM shelf_shares WHERE token = ? AND enabled = 1',
+      ).get(token)
+      return row?.user_id ?? null
+    },
+    ...createThemeStore(sqlite, uid),
     close() {
       sqlite.close()
     },

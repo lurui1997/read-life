@@ -1,4 +1,5 @@
 import type { Encounter } from '../shared/encounter'
+import type { ScopeKind, ThemeBoard, ThemeHighlightLine, ThemeScopeOption } from '../shared/themes'
 import type { MapQuote, MapSourceBook } from '../shared/reading-map'
 import type { BookDetail, BooksResponse, SyncStatus } from '../shared/types'
 
@@ -99,4 +100,75 @@ export function pollWereadLogin(loginId: string) {
 
 export function unlinkWeread() {
   return request<{ linked: boolean }>('/api/weread/unlink', { method: 'POST' })
+}
+
+export type ShareStatus = {
+  enabled: boolean
+  path: string | null
+}
+
+export function getShare() {
+  return request<ShareStatus>('/api/share')
+}
+
+export function saveShare(body: { enabled: boolean; rotate?: boolean }) {
+  return request<ShareStatus>('/api/share', { method: 'PUT', body: JSON.stringify(body) })
+}
+
+export type PublicShelf = BooksResponse & { owner: string }
+
+export function getPublicShelf(token: string) {
+  return request<PublicShelf>(`/api/public/shelves/${encodeURIComponent(token)}`)
+}
+
+export function getPublicBook(token: string, bookId: string) {
+  return request<BookDetail>(`/api/public/shelves/${encodeURIComponent(token)}/books/${encodeURIComponent(bookId)}`)
+}
+
+export function getThemeScopes() {
+  return request<{ categories: ThemeScopeOption[]; groups: ThemeScopeOption[]; recent: ThemeScopeOption }>('/api/themes/scopes')
+}
+
+export function getThemeBoard(kind: ScopeKind, key: string) {
+  const query = new URLSearchParams({ kind, key })
+  return request<ThemeBoard>(`/api/themes?${query}`)
+}
+
+export function getThemeHighlights(kind: ScopeKind, key: string, theme: string) {
+  const query = new URLSearchParams({ kind, key, theme })
+  return request<{ highlights: ThemeHighlightLine[] }>(`/api/themes/highlights?${query}`)
+}
+
+export function clusterThemes(kind: ScopeKind, key: string) {
+  return request<ThemeBoard>('/api/themes/cluster', {
+    method: 'POST',
+    body: JSON.stringify({ kind, key }),
+  })
+}
+
+export function renameTheme(themeId: string, name: string) {
+  return request<{ ok: boolean }>('/api/themes/rename', {
+    method: 'POST',
+    body: JSON.stringify({ themeId, name }),
+  })
+}
+
+export function mergeThemes(sourceId: string, targetId: string) {
+  return request<{ ok: boolean }>('/api/themes/merge', {
+    method: 'POST',
+    body: JSON.stringify({ sourceId, targetId }),
+  })
+}
+
+export function moveThemeHighlight(body: {
+  kind: ScopeKind
+  key: string
+  bookmarkId: string
+  themeId?: string | null
+  create?: boolean
+}) {
+  return request<ThemeBoard>('/api/themes/move', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
 }

@@ -6,6 +6,23 @@
     <meta name="color-scheme" content="light" />
     <meta name="theme-color" content="#f3ecdf" />
     <title>折角</title>
+    <script>
+      try {
+        var pref = localStorage.getItem('read-life.theme') || 'system'
+        if (pref === 'light') pref = 'paper'
+        if (pref === 'dark') pref = 'night'
+        var known = { paper: 1, bamboo: 1, frost: 1, night: 1 }
+        var systemDark = matchMedia('(prefers-color-scheme: dark)').matches
+        var theme = known[pref] ? pref : (systemDark ? 'night' : 'paper')
+        var scheme = theme === 'night' ? 'dark' : 'light'
+        var colors = { paper: '#f3ecdf', bamboo: '#d5e3d4', frost: '#e6eef1', night: '#12100e' }
+        document.documentElement.dataset.theme = theme
+        document.documentElement.dataset.scheme = scheme
+        document.documentElement.style.colorScheme = scheme
+        var meta = document.querySelector('meta[name="theme-color"]')
+        if (meta) meta.setAttribute('content', colors[theme])
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

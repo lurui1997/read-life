@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { BookCard } from './BookCard'
 import { LoadMoreSentinel } from './LoadMoreSentinel'
-import { applyRandomOrder, type ShelfSection } from './shelf-views'
+import { applyRandomOrder, filterShelfSections, type ShelfSection } from './shelf-views'
 
 type BrowseVariant = 'archive' | 'category'
 
@@ -12,6 +12,9 @@ type ShelfBrowseProps = {
   storageKey: string
   randomOrder?: boolean
   shuffleSeed?: number
+  bookPath?: (bookId: string) => string
+  externalPath?: (bookId: string) => string
+  freshIds?: ReadonlySet<string>
 }
 
 export function ShelfBrowse({
@@ -21,17 +24,17 @@ export function ShelfBrowse({
   storageKey,
   randomOrder = false,
   shuffleSeed = 0,
+  bookPath,
+  externalPath,
+  freshIds,
 }: ShelfBrowseProps) {
   const [selectedKey, setSelectedKey] = useState<string>(() => readStoredKey(storageKey, sections))
   const [query, setQuery] = useState('')
   const [subFilter, setSubFilter] = useState('全部')
   const [visibleCount, setVisibleCount] = useState(36)
 
-  const filteredSections = useMemo(() => {
-    const needle = query.trim().toLowerCase()
-    if (!needle) return sections
-    return sections.filter((section) => section.label.toLowerCase().includes(needle))
-  }, [query, sections])
+  const searching = query.trim().length > 0
+  const filteredSections = useMemo(() => filterShelfSections(sections, query), [query, sections])
 
   const activeKey = filteredSections.some((section) => section.key === selectedKey)
     ? selectedKey
@@ -53,13 +56,13 @@ export function ShelfBrowse({
   const visibleBooks = useMemo(() => {
     if (!activeSection) return []
     const filtered =
-      variant !== 'category' || subFilter === '全部'
+      searching || variant !== 'category' || subFilter === '全部'
         ? activeSection.books
         : activeSection.books.filter((book) => book.category?.includes(subFilter))
     if (!randomOrder) return filtered
     return applyRandomOrder([{ key: activeSection.key, label: activeSection.label, books: filtered }], shuffleSeed)[0]
       ?.books ?? filtered
-  }, [activeSection, randomOrder, shuffleSeed, subFilter, variant])
+  }, [activeSection, randomOrder, searching, shuffleSeed, subFilter, variant])
 
   useEffect(() => {
     if (activeKey) localStorage.setItem(storageKey, activeKey)
@@ -99,18 +102,19 @@ export function ShelfBrowse({
           <p className="muted">{filteredSections.length} 个{variant === 'archive' ? '分组' : '分类'}</p>
         </div>
         <label className="browse-search">
-          <span className="sr-only">搜索{variant === 'archive' ? '分组' : '分类'}</span>
+          <span className="sr-only">搜索书名或作者</span>
           <input
             type="search"
             value={query}
-            placeholder={variant === 'archive' ? '搜索分组…' : '搜索分类…'}
-            onChange={(event) => setQuery(event.target.value)}
+            placeholder="搜索书名或作者…"
+            onChange={(event) => {
+              setQuery(event.target.value)
+              setSubFilter('全部')
+              setVisibleCount(36)
+            }}
           />
         </label>
         <div className="browse-nav-list" role="listbox" aria-label={variant === 'archive' ? '分组列表' : '分类列表'}>
-          {filteredSections.length === 0 ? (
-            <p className="muted browse-nav-empty">没有匹配的{variant === 'archive' ? '分组' : '分类'}。</p>
-          ) : null}
           {filteredSections.map((section) => (
             <button
               key={section.key}
@@ -145,13 +149,13 @@ export function ShelfBrowse({
               <div>
                 <h2>{activeSection.label}</h2>
                 <p className="muted">
-                  共 {visibleBooks.length} 本
-                  {totalBooks > 0 ? ` · 占书架 ${Math.round((activeSection.books.length / totalBooks) * 100)}%` : ''}
+                  {searching ? `找到 ${visibleBooks.length} 本` : `共 ${visibleBooks.length} 本`}
+                  {!searching && totalBooks > 0 ? ` · 占书架 ${Math.round((activeSection.books.length / totalBooks) * 100)}%` : ''}
                 </p>
               </div>
             </header>
 
-            {variant === 'category' && subFilters.length > 1 ? (
+            {!searching && variant === 'category' && subFilters.length > 1 ? (
               <div className="browse-filters">
                 {subFilters.map((label) => (
                   <button
@@ -170,7 +174,7 @@ export function ShelfBrowse({
             ) : null}
 
             {shown.length === 0 ? (
-              <p className="muted">这个{variant === 'archive' ? '分组' : '分类'}下没有书。</p>
+              <p className="muted">{searching ? '没有找到这本书。' : `这个${variant === 'archive' ? '分组' : '分类'}下没有书。`}</p>
             ) : (
               <div className="grid">
                 {shown.map((book) => (
@@ -178,6 +182,9 @@ export function ShelfBrowse({
                     key={book.bookId}
                     book={book}
                     subtitle={variant === 'category' && book.category ? book.category : null}
+                    href={bookPath?.(book.bookId)}
+                    externalHref={externalPath?.(book.bookId)}
+                    fresh={freshIds?.has(book.bookId)}
                   />
                 ))}
               </div>
@@ -188,7 +195,9 @@ export function ShelfBrowse({
               onLoadMore={() => setVisibleCount((count) => count + 36)}
             />
           </>
-        ) : null}
+        ) : (
+          <p className="muted">没有找到这本书。</p>
+        )}
       </section>
     </div>
   )

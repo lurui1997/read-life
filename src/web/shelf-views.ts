@@ -115,6 +115,19 @@ function sortByRating(books: BookSummary[]): BookSummary[] {
   return [...books].sort((left, right) => (right.newRating ?? -1) - (left.newRating ?? -1))
 }
 
+export function filterShelfSections(sections: ShelfSection[], query: string): ShelfSection[] {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return sections
+  return sections.flatMap((section) => {
+    const labelHit = section.label.toLowerCase().includes(needle)
+    const books = labelHit
+      ? section.books
+      : section.books.filter((book) =>
+          book.title.toLowerCase().includes(needle) || book.author.toLowerCase().includes(needle))
+    return books.length > 0 ? [{ ...section, books }] : []
+  })
+}
+
 export function pickRandomBook(books: BookSummary[]): BookSummary | null {
   if (books.length === 0) return null
   return books[Math.floor(Math.random() * books.length)] ?? null
