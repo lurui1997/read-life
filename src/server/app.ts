@@ -1,14 +1,19 @@
 import { randomBytes, randomUUID } from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
 import { Hono } from 'hono'
 import { compress } from 'hono/compress'
 import { LOCAL_USER_ID, type AppDatabase } from './db'
 import { backfillBookMetadata } from './metadata'
 import { hashPassword, hashToken, newSessionToken, verifyPassword } from './secrets'
+import { createCursorHandbookModel, cursorAgentReady } from './cursor-grok'
+import { buildHandbookCards, drawHandbookChapter, rewriteHandbookChapter, writeHandbookChapters, type HandbookModel } from './handbook-run'
 import { runSync } from './sync'
 import { WereadError, type WereadClient } from './weread'
 import { createWereadLogin } from './weread-login'
 import { wereadReaderUrl } from './weread-url'
 import { pickEncounters } from '../shared/encounter'
+import { HANDBOOK_BOOK_LIMIT, handbookBookIds } from '../shared/handbook'
 import { RECENT_SCOPE_KEY, type ScopeKind, type ThemeWrite } from '../shared/themes'
 import { contentDisposition, exportFilename, highlightsToCsv, highlightsToMarkdown } from '../shared/export-highlights'
 import type { SyncStatus } from '../shared/types'
@@ -26,18 +31,112 @@ type SyncState = {
   recent: SyncStatus['recent']
 }
 
+type HandbookJob = {
+  running: boolean
+  phase: 'idle' | 'cards' | 'chapters' | 'rewrite' | 'draw'
+  done: number
+  total: number
+  message: string
+  error: string | null
+}
+
 export type AppOptions = {
   db: AppDatabase
   createClient: (apiKey: string) => WereadClient
   authRequired?: boolean
   cookieSecure?: boolean
   now?: () => Date
+  handbookModel?: HandbookModel
+  handbookImageDir?: string
 }
 
 type AppEnv = { Variables: { userId: string } }
 
 export function createApp(options: AppOptions) {
   const { db, createClient } = options
+  const handbookJobs = new Map<string, HandbookJob>()
+  const handbookImageDir = options.handbookImageDir ?? path.join(process.cwd(), 'data', 'handbook')
+
+  function handbookJob(userId: string): HandbookJob {
+    return handbookJobs.get(userId) ?? { running: false, phase: 'idle', done: 0, total: 0, message: '', error: null }
+  }
+
+  function handbookModel(): HandbookModel {
+    return options.handbookModel ?? createCursorHandbookModel()
+  }
+
+  function handbookImageFile(userId: string, handbookId: string, position: number) {
+    const safeUser = userId.replace(/[^a-zA-Z0-9_-]/g, '_') || 'local'
+    const safeHandbook = handbookId.replace(/[^a-zA-Z0-9_-]/g, '_')
+    return path.join(handbookImageDir, safeUser, safeHandbook, `${position}.png`)
+  }
+
+  function adoptLooseHandbookImages() {
+    const earliest = new Map<string, string>()
+    for (const row of db.listHandbookOwners()) {
+      if (!earliest.has(row.userId)) earliest.set(row.userId, row.handbookId)
+    }
+    for (const [userId, handbookId] of earliest) {
+      const userDir = path.join(handbookImageDir, userId.replace(/[^a-zA-Z0-9_-]/g, '_') || 'local')
+      for (let position = 1; position <= 7; position += 1) {
+        const loose = path.join(userDir, `${position}.png`)
+        if (!fs.existsSync(loose)) continue
+        const dest = handbookImageFile(userId, handbookId, position)
+        fs.mkdirSync(path.dirname(dest), { recursive: true })
+        if (!fs.existsSync(dest)) fs.renameSync(loose, dest)
+      }
+    }
+  }
+  adoptLooseHandbookImages()
+
+  function chapterPosition(value: string): number | null {
+    const position = Number(value)
+    if (!Number.isInteger(position) || position < 1 || position > 7) return null
+    return position
+  }
+
+  function resolveHandbookId(userId: string, requested: string | null): string | null {
+    const history = db.listHandbooks(userId)
+    if (requested && history.some((item) => item.id === requested)) return requested
+    return history[0]?.id ?? null
+  }
+
+  function handbookView(userId: string, requested: string | null = null) {
+    const history = db.listHandbooks(userId)
+    const handbookId = requested && history.some((item) => item.id === requested) ? requested : history[0]?.id ?? null
+    const chapters = handbookId ? db.listHandbookChapters(handbookId, userId) : []
+    return {
+      modelReady: Boolean(options.handbookModel) || cursorAgentReady(),
+      job: handbookJob(userId),
+      handbookId,
+      history,
+      chapters: chapters.map((chapter) => ({
+        position: chapter.position,
+        title: chapter.title,
+        body: chapter.body,
+        hasImage: chapter.hasImage,
+        books: chapter.bookIds.flatMap((bookId) => {
+          const book = db.quoteHandbookBook(bookId, userId)
+          return book ? [{ bookId, title: book.title, author: book.author, quotes: book.quotes }] : []
+        }),
+      })),
+    }
+  }
+
+  function startHandbook(userId: string, work: () => Promise<void>) {
+    if (handbookJob(userId).running) return false
+    const job: HandbookJob = { running: true, phase: 'cards', done: 0, total: 0, message: '开始', error: null }
+    handbookJobs.set(userId, job)
+    void work().then(() => {
+      job.running = false
+      job.phase = 'idle'
+    }).catch((error: unknown) => {
+      job.running = false
+      job.phase = 'idle'
+      job.error = error instanceof Error ? error.message : '手册没有写完'
+    })
+    return true
+  }
   const now = () => options.now?.() ?? new Date()
   const authRequired = options.authRequired === true
   const wereadLogin = createWereadLogin()
@@ -405,6 +504,114 @@ export function createApp(options: AppOptions) {
     const bookId = c.req.param('bookId')
     if (!db.getBook(bookId, c.get('userId'))) return c.json({ error: '未找到这本书' }, 404)
     return c.redirect(wereadReaderUrl(bookId), 302)
+  })
+
+  app.get('/api/handbook', (c) => c.json(handbookView(c.get('userId'), c.req.query('id') ?? null)))
+
+  app.get('/api/handbook/books', (c) => {
+    return c.json({ books: db.searchHandbookShelf(c.req.query('q') ?? '', c.get('userId')) })
+  })
+
+  app.post('/api/handbook/write', async (c) => {
+    const userId = c.get('userId')
+    const body = await c.req.json().catch(() => null) as { rebuildCards?: boolean; bookIds?: unknown } | null
+    const bookIds = handbookBookIds(body?.bookIds)
+    if (bookIds.length === 0) return c.json({ error: '先选择 1 到 3 本书' }, 400)
+    if (bookIds.length > HANDBOOK_BOOK_LIMIT) return c.json({ error: '每次最多选择 3 本书' }, 400)
+    if (db.listHandbookShelfIds(bookIds, userId).length !== bookIds.length) {
+      return c.json({ error: '架上没有这几本书' }, 400)
+    }
+    const rebuild = body?.rebuildCards === true
+    const started = startHandbook(userId, async () => {
+      const job = handbookJob(userId)
+      const ready = new Set(db.listHandbookCards(userId).filter((card) => bookIds.includes(card.bookId)).map((card) => card.bookId))
+      const toRead = rebuild ? bookIds : bookIds.filter((bookId) => !ready.has(bookId))
+      if (toRead.length > 0) {
+        job.phase = 'cards'
+        await buildHandbookCards(db, handbookModel(), userId, toRead, (done, total, message) => {
+          job.done = done
+          job.total = total
+          job.message = message
+        })
+      }
+      db.retainHandbookCards(bookIds, userId)
+      job.phase = 'chapters'
+      await writeHandbookChapters(db, handbookModel(), userId, bookIds, (done, total, message) => {
+        job.done = done
+        job.total = total
+        job.message = message
+      })
+    })
+    if (!started) return c.json({ error: '手册还在写' }, 409)
+    return c.json(handbookView(userId))
+  })
+
+  app.patch('/api/handbook/chapters/:position', async (c) => {
+    const position = chapterPosition(c.req.param('position'))
+    const userId = c.get('userId')
+    if (!position) return c.json({ error: '没有这一章' }, 404)
+    const body = await c.req.json().catch(() => null) as { title?: unknown; body?: unknown; handbookId?: unknown } | null
+    const handbookId = resolveHandbookId(userId, typeof body?.handbookId === 'string' ? body.handbookId : null)
+    const title = typeof body?.title === 'string' ? body.title.trim() : ''
+    const prose = typeof body?.body === 'string' ? body.body.trim() : ''
+    if (!handbookId) return c.json({ error: '还没有这本手册' }, 404)
+    if (!title || !prose) return c.json({ error: '章名和正文不能为空' }, 400)
+    if (!db.listHandbookChapters(handbookId, userId).some((chapter) => chapter.position === position)) {
+      return c.json({ error: '还没有这一章' }, 404)
+    }
+    db.updateHandbookChapter(handbookId, position, { title, body: prose }, userId)
+    return c.json(handbookView(userId, handbookId))
+  })
+
+  app.post('/api/handbook/chapters/:position/rewrite', async (c) => {
+    const position = chapterPosition(c.req.param('position'))
+    const userId = c.get('userId')
+    if (!position) return c.json({ error: '没有这一章' }, 404)
+    const body = await c.req.json().catch(() => null) as { handbookId?: unknown } | null
+    const handbookId = resolveHandbookId(userId, typeof body?.handbookId === 'string' ? body.handbookId : null)
+    if (!handbookId || !db.listHandbookChapters(handbookId, userId).some((chapter) => chapter.position === position)) {
+      return c.json({ error: '还没有这一章' }, 404)
+    }
+    const started = startHandbook(userId, async () => {
+      const job = handbookJob(userId)
+      job.phase = 'rewrite'
+      job.message = `正在重写第 ${position} 章`
+      await rewriteHandbookChapter(db, handbookModel(), userId, handbookId, position)
+      job.message = `第 ${position} 章已重写`
+    })
+    if (!started) return c.json({ error: '手册还在写' }, 409)
+    return c.json(handbookView(userId, handbookId))
+  })
+
+  app.post('/api/handbook/chapters/:position/draw', async (c) => {
+    const position = chapterPosition(c.req.param('position'))
+    const userId = c.get('userId')
+    if (!position) return c.json({ error: '没有这一章' }, 404)
+    const body = await c.req.json().catch(() => null) as { handbookId?: unknown } | null
+    const handbookId = resolveHandbookId(userId, typeof body?.handbookId === 'string' ? body.handbookId : null)
+    if (!handbookId || !db.listHandbookChapters(handbookId, userId).some((chapter) => chapter.position === position)) {
+      return c.json({ error: '还没有这一章' }, 404)
+    }
+    const started = startHandbook(userId, async () => {
+      const job = handbookJob(userId)
+      job.phase = 'draw'
+      job.message = `正在画第 ${position} 章`
+      await drawHandbookChapter(db, handbookModel(), userId, handbookId, position, handbookImageFile(userId, handbookId, position))
+      job.message = `第 ${position} 章已画出`
+    })
+    if (!started) return c.json({ error: '手册还在写' }, 409)
+    return c.json(handbookView(userId, handbookId))
+  })
+
+  app.get('/api/handbook/chapters/:position/image', (c) => {
+    const position = chapterPosition(c.req.param('position'))
+    if (!position) return c.json({ error: '没有这一章' }, 404)
+    const userId = c.get('userId')
+    const handbookId = resolveHandbookId(userId, c.req.query('handbook') ?? null)
+    if (!handbookId) return c.json({ error: '这一章还没有图' }, 404)
+    const file = handbookImageFile(userId, handbookId, position)
+    if (!fs.existsSync(file)) return c.json({ error: '这一章还没有图' }, 404)
+    return c.body(fs.readFileSync(file), 200, { 'Content-Type': 'image/png' })
   })
 
   app.get('/api/books/:bookId', (c) => {

@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { getBook, getBooks, getEncounter, getKeyStatus, getMe, getPublicBook, getPublicShelf, getShare, getSync, loginAccount, logoutAccount, pollWereadLogin, registerAccount, saveKey, saveShare, startSync, startWereadLogin, unlinkWeread, type AuthMe, type ShareStatus } from './api'
+import { getBook, getBooks, getKeyStatus, getMe, getPublicBook, getPublicShelf, getShare, getSync, loginAccount, logoutAccount, pollWereadLogin, registerAccount, saveKey, saveShare, startSync, startWereadLogin, unlinkWeread, type AuthMe, type ShareStatus } from './api'
 import { formatDuration, formatProgress } from './format'
 import { BookCard } from './BookCard'
+import { EncounterPage } from './EncounterPage'
+import { Handbook } from './Handbook'
 import { ReadingMap } from './ReadingMap'
 import { ShelfBrowse } from './ShelfBrowse'
 import { FeatureShowcase, readShowcaseDismissed } from './FeatureShowcase'
 import { LoadMoreSentinel } from './LoadMoreSentinel'
 import { SurpriseToolbar } from './SurpriseToolbar'
 import { applyRandomOrder, buildShelfSections, filterShelfSections, type ShelfMode } from './shelf-views'
-import { bookmarkIdFromHash, encounterHref, type Encounter } from '../shared/encounter'
+import { bookmarkIdFromHash } from '../shared/encounter'
 import type { BookDetail, BooksResponse, SyncStatus } from '../shared/types'
 import { applyTheme, readThemePreference, themeOptions, writeThemePreference, type ThemePreference } from './theme'
 
@@ -19,6 +21,8 @@ type Route =
   | { name: 'register' }
   | { name: 'book'; bookId: string }
   | { name: 'map' }
+  | { name: 'handbook' }
+  | { name: 'encounter' }
   | { name: 'share'; token: string; bookId: string | null }
 
 function readRoute(): Route {
@@ -35,6 +39,8 @@ function readRoute(): Route {
   if (path === '/login') return { name: 'login' }
   if (path === '/register') return { name: 'register' }
   if (path === '/map') return { name: 'map' }
+  if (path === '/handbook') return { name: 'handbook' }
+  if (path === '/encounter') return { name: 'encounter' }
   if (path.startsWith('/book/')) return { name: 'book', bookId: decodeURIComponent(path.slice('/book/'.length)) }
   return { name: 'shelf' }
 }
@@ -142,7 +148,7 @@ export function App() {
   const onShelf = route.name === 'shelf'
   const onBook = route.name === 'book'
   const shelfChrome = onShelf || route.name === 'settings'
-  const minimalNav = shelfChrome || onBook
+  const minimalNav = shelfChrome || onBook || route.name === 'handbook' || route.name === 'encounter'
 
   return (
     <div className={`app app-${route.name}`}>
@@ -168,6 +174,8 @@ export function App() {
             <a className="nav-text" href="/login" onClick={(event) => { event.preventDefault(); go('/login') }}>登录</a>
           ) : (
             <>
+              <a className="nav-text" href="/handbook" onClick={(event) => { event.preventDefault(); go('/handbook') }}>手册</a>
+              <a className="nav-text" href="/encounter" aria-current={route.name === 'encounter' ? 'page' : undefined} onClick={(event) => { event.preventDefault(); go('/encounter') }}>划线</a>
               <a className="nav-text nav-map" href="/map" onClick={(event) => { event.preventDefault(); go('/map') }}>地图</a>
               <a
                 className={minimalNav ? 'nav-text' : undefined}
@@ -224,6 +232,8 @@ export function App() {
         />
       ) : null}
       {route.name === 'map' ? <ReadingMap onClose={() => go('/')} onOpen={(href) => go(href)} /> : null}
+      {route.name === 'handbook' ? <Handbook /> : null}
+      {route.name === 'encounter' ? <EncounterPage libraryVersion={libraryVersion} onOpen={go} /> : null}
       {route.name === 'book' ? (
         <BookPage bookId={route.bookId} libraryVersion={libraryVersion} onBack={() => go('/')} />
       ) : null}
@@ -408,7 +418,6 @@ function Shelf({
     const guide = new URLSearchParams(window.location.search).get('guide') === '1'
     return guide || !readShowcaseDismissed()
   })
-  const [encounters, setEncounters] = useState<Encounter[]>([])
   const toolsRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -435,21 +444,6 @@ function Shelf({
       stop = true
     }
   }, [libraryVersion, liveTick, loadBooks, shared])
-
-  useEffect(() => {
-    if (shared) return
-    let stop = false
-    void getEncounter()
-      .then((next) => {
-        if (!stop) setEncounters(next.encounters)
-      })
-      .catch(() => {
-        if (!stop) setEncounters([])
-      })
-    return () => {
-      stop = true
-    }
-  }, [libraryVersion, shared])
 
   useEffect(() => {
     localStorage.setItem(shelfModeKey, mode)
@@ -501,30 +495,6 @@ function Shelf({
   const searchingBooks = !browseMode && bookQuery.trim().length > 0
   return (
     <div className="shelf">
-      {!shared && encounters.length > 0 ? (
-        <section className="encounter-block" aria-label="随机划线">
-          {encounters.map((encounter) => (
-            <a className="encounter" href={encounterHref(encounter.bookId, encounter.bookmarkId)} key={encounter.bookmarkId}>
-              <p className="encounter-line">{encounter.markText}</p>
-              <span className="encounter-meta">
-                <span className="encounter-title">{encounter.title || '未命名'}</span>
-                <span className="encounter-go">去这一章</span>
-              </span>
-            </a>
-          ))}
-          <button
-            type="button"
-            className="encounter-refresh"
-            onClick={() => {
-              void getEncounter(encounters.map((item) => item.bookmarkId))
-                .then((next) => setEncounters(next.encounters))
-                .catch(() => setEncounters([]))
-            }}
-          >
-            重新随机
-          </button>
-        </section>
-      ) : null}
       {!shared && showcaseVisible ? (
         <FeatureShowcase
           onDismiss={() => setShowcaseVisible(false)}

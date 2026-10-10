@@ -160,6 +160,75 @@ export function mergeThemes(sourceId: string, targetId: string) {
   })
 }
 
+export type HandbookChapter = {
+  position: number
+  title: string
+  body: string
+  hasImage: boolean
+  books: Array<{ bookId: string; title: string; author: string; quotes: string[] }>
+}
+
+export type HandbookSummary = {
+  id: string
+  createdAt: string
+  title: string
+}
+
+export type HandbookView = {
+  modelReady: boolean
+  job: {
+    running: boolean
+    phase: string
+    done: number
+    total: number
+    message: string
+    error: string | null
+  }
+  handbookId: string | null
+  history: HandbookSummary[]
+  chapters: HandbookChapter[]
+}
+
+export function getHandbook(handbookId?: string | null) {
+  const query = handbookId ? `?id=${encodeURIComponent(handbookId)}` : ''
+  return request<HandbookView>(`/api/handbook${query}`)
+}
+
+export type HandbookShelfBook = { bookId: string; title: string; author: string }
+
+export function searchHandbookBooks(query: string) {
+  const params = new URLSearchParams({ q: query })
+  return request<{ books: HandbookShelfBook[] }>(`/api/handbook/books?${params}`)
+}
+
+export function writeHandbook(bookIds: string[], rebuildCards = false) {
+  return request<HandbookView>('/api/handbook/write', {
+    method: 'POST',
+    body: JSON.stringify({ bookIds, rebuildCards }),
+  })
+}
+
+export function saveHandbookChapter(position: number, title: string, body: string, handbookId: string) {
+  return request<HandbookView>(`/api/handbook/chapters/${position}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ title, body, handbookId }),
+  })
+}
+
+export function rewriteHandbookChapter(position: number, handbookId: string) {
+  return request<HandbookView>(`/api/handbook/chapters/${position}/rewrite`, {
+    method: 'POST',
+    body: JSON.stringify({ handbookId }),
+  })
+}
+
+export function drawHandbookChapter(position: number, handbookId: string) {
+  return request<HandbookView>(`/api/handbook/chapters/${position}/draw`, {
+    method: 'POST',
+    body: JSON.stringify({ handbookId }),
+  })
+}
+
 export function moveThemeHighlight(body: {
   kind: ScopeKind
   key: string

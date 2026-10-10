@@ -23,6 +23,7 @@ const app = createApp({
   createClient: (apiKey) => createWereadClient(apiKey),
   authRequired: config.authRequired,
   cookieSecure: config.cookieSecure,
+  handbookImageDir: process.env.HANDBOOK_IMAGE_DIR ?? path.join(path.dirname(dbPath), 'handbook'),
 })
 
 function startBackgroundCatalogRefresh() {

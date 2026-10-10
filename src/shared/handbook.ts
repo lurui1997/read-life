@@ -1,0 +1,221 @@
+export const HIGHLIGHT_CHUNK_CHARS = 2500
+export const CHAPTER_INPUT_CHARS = 7000
+export const HANDBOOK_BOOK_LIMIT = 3
+
+export function handbookBookIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const ids: string[] = []
+  for (const item of value) {
+    if (typeof item !== 'string' || item.trim() === '' || ids.includes(item)) continue
+    ids.push(item)
+  }
+  return ids
+}
+
+export type HandbookHighlight = {
+  chapterTitle: string
+  markText: string
+}
+
+export type HandbookBookSource = {
+  bookId: string
+  title: string
+  author: string
+  category: string | null
+  progress: number | null
+  finishReading: boolean
+  highlights: HandbookHighlight[]
+}
+
+export type BookChunk = {
+  bookId: string
+  title: string
+  author: string
+  category: string | null
+  progress: number | null
+  finishReading: boolean
+  part: number
+  parts: number
+  highlights: HandbookHighlight[]
+}
+
+export type HandbookCard = {
+  bookId: string
+  title: string
+  author: string
+  card: string
+}
+
+export type HandbookChapterDraft = {
+  title: string
+  body: string
+  bookIds: string[]
+}
+
+export function chunkBook(book: HandbookBookSource, budget = HIGHLIGHT_CHUNK_CHARS): BookChunk[] {
+  const pieces = book.highlights.flatMap((highlight) => splitText(highlight.markText, budget).map((markText) => ({
+    chapterTitle: highlight.chapterTitle,
+    markText,
+  })))
+  const groups: HandbookHighlight[][] = []
+  let current: HandbookHighlight[] = []
+  let size = 0
+  for (const piece of pieces) {
+    const length = piece.markText.length + piece.chapterTitle.length
+    if (current.length > 0 && size + length > budget) {
+      groups.push(current)
+      current = []
+      size = 0
+    }
+    current.push(piece)
+    size += length
+  }
+  if (current.length > 0) groups.push(current)
+  if (groups.length === 0) groups.push([])
+  return groups.map((highlights, index) => ({
+    bookId: book.bookId,
+    title: book.title,
+    author: book.author,
+    category: book.category,
+    progress: book.progress,
+    finishReading: book.finishReading,
+    part: index + 1,
+    parts: groups.length,
+    highlights,
+  }))
+}
+
+export function cardPrompt(chunk: BookChunk, previousCard: string | null): string {
+  const lines = chunk.highlights.map((highlight) => `【${highlight.chapterTitle || '未分章'}】${highlight.markText}`)
+  return [
+    '只根据下面这一段，写一张不超过 180 字的卡片，说明这本书对这位读者的人生有什么用。',
+    '不要复述整段原文。如果有上一张卡片，把新的一段合进去，仍不超过 180 字。',
+    '只回复卡片正文，不要标题，不要 JSON。',
+    `书名：${chunk.title}`,
+    `作者：${chunk.author}`,
+    `分类：${chunk.category || '未分类'}`,
+    `进度：${chunk.finishReading ? '已读完' : `${chunk.progress ?? 0}%`}`,
+    `这是该书的第 ${chunk.part}/${chunk.parts} 段。`,
+    previousCard ? `上一张卡片：${previousCard}` : '上一张卡片：无',
+    '这一段划线：',
+    lines.join('\n') || '（这本书没有划线）',
+  ].join('\n')
+}
+
+export function batchesOf<T extends { card: string }>(cards: T[], budget = CHAPTER_INPUT_CHARS): T[][] {
+  const batches: T[][] = []
+  let current: T[] = []
+  let size = 0
+  for (const card of cards) {
+    const length = card.card.length + 40
+    if (current.length > 0 && size + length > budget) {
+      batches.push(current)
+      current = []
+      size = 0
+    }
+    current.push(card)
+    size += length
+  }
+  if (current.length > 0) batches.push(current)
+  return batches
+}
+
+export function digestPrompt(cards: HandbookCard[]): string {
+  return [
+    '把下面几张卡片收成一段不超过 220 字的摘要，供后面写人生手册使用。',
+    '只回复 JSON：{"summary":"","bookIds":[]}',
+    'bookIds 只能从下面给出的 id 里选。',
+    ...cards.map((card) => `id=${card.bookId} 《${card.title}》 ${card.author}\n${card.card}`),
+  ].join('\n')
+}
+
+export function chaptersPrompt(source: string): string {
+  return [
+    '根据下面的材料，写一本七章的人生手册。写的是这位读者，书和划线只是证据。',
+    '每章正文 200 到 400 字。bookIds 只能从材料里出现的 id 中选。',
+    '只回复 JSON：{"chapters":[{"title":"","body":"","bookIds":[]}]}',
+    '必须正好 7 章。',
+    source,
+  ].join('\n')
+}
+
+export function cardsSource(cards: HandbookCard[]): string {
+  return cards.map((card) => `id=${card.bookId} 《${card.title}》 ${card.author}\n${card.card}`).join('\n\n')
+}
+
+export function rewriteChapterPrompt(position: number, current: HandbookChapterDraft, cards: HandbookCard[]): string {
+  return [
+    `重写人生手册的第 ${position} 章。可以改章名。正文 200 到 400 字。`,
+    '只回复 JSON：{"title":"","body":"","bookIds":[]}',
+    'bookIds 只能从下面卡片的 id 里选。',
+    `当前章名：${current.title}`,
+    `当前正文：${current.body}`,
+    cardsSource(cards),
+  ].join('\n')
+}
+
+export function drawPrompt(title: string, body: string): string {
+  return [
+    '为一本个人人生手册画一幅图版。平静、具体、没有字。',
+    '不要画成书封拼贴。',
+    `章名：${title}`,
+    `正文：${body}`,
+  ].join('\n')
+}
+
+export function parseCard(text: string): string {
+  const card = text.trim()
+  if (!card) throw new Error('卡片是空的')
+  return card.slice(0, 400)
+}
+
+export function parseDigest(text: string, allowed: Set<string>): { summary: string; bookIds: string[] } {
+  const body = readJson(text) as { summary?: unknown; bookIds?: unknown }
+  const summary = typeof body.summary === 'string' ? body.summary.trim() : ''
+  if (!summary) throw new Error('摘要是空的')
+  return { summary, bookIds: knownIds(body.bookIds, allowed) }
+}
+
+export function parseChapters(text: string, allowed: Set<string>): HandbookChapterDraft[] {
+  const body = readJson(text) as { chapters?: unknown }
+  if (!Array.isArray(body.chapters) || body.chapters.length !== 7) throw new Error('需要正好七章')
+  return body.chapters.map((chapter) => {
+    const item = chapter as { title?: unknown; body?: unknown; bookIds?: unknown }
+    const title = typeof item.title === 'string' ? item.title.trim() : ''
+    const prose = typeof item.body === 'string' ? item.body.trim() : ''
+    if (!title || !prose) throw new Error('某一章缺少章名或正文')
+    return { title, body: prose, bookIds: knownIds(item.bookIds, allowed) }
+  })
+}
+
+export function parseRewrittenChapter(text: string, allowed: Set<string>): HandbookChapterDraft {
+  const body = readJson(text) as { title?: unknown; body?: unknown; bookIds?: unknown }
+  const title = typeof body.title === 'string' ? body.title.trim() : ''
+  const prose = typeof body.body === 'string' ? body.body.trim() : ''
+  if (!title || !prose) throw new Error('重写的这一章不完整')
+  return { title, body: prose, bookIds: knownIds(body.bookIds, allowed) }
+}
+
+function knownIds(value: unknown, allowed: Set<string>): string[] {
+  if (!Array.isArray(value)) return []
+  const ids: string[] = []
+  for (const item of value) {
+    if (typeof item !== 'string' || !allowed.has(item) || ids.includes(item)) continue
+    ids.push(item)
+  }
+  return ids
+}
+
+function readJson(text: string): unknown {
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  if (start < 0 || end <= start) throw new Error('模型没有返回 JSON')
+  return JSON.parse(text.slice(start, end + 1)) as unknown
+}
+
+function splitText(text: string, budget: number): string[] {
+  if (text.length <= budget) return [text]
+  const parts: string[] = []
+  for (let index = 0; index < text.length; index += budget) parts.push(text.slice(index, index + budget))
+  return parts
+}

@@ -6,6 +6,7 @@ import type { MapQuote, MapSourceBook } from '../shared/reading-map'
 import type { BookDetail, BookSummary, Highlight, SyncRecord } from '../shared/types'
 import { normalizeProgress } from '../shared/progress'
 import type { ScopeKind, ThemeBoard, ThemeHighlightLine, ThemeScopeOption, ThemeWrite } from '../shared/themes'
+import { createHandbookStore } from './handbook-db'
 import { createThemeStore } from './theme-db'
 import { wereadReaderUrl } from './weread-url'
 import { openSeal, seal } from './secrets'
@@ -66,7 +67,7 @@ type BookRow = {
   rating_label: string | null
 }
 
-export type AppDatabase = {
+export type AppDatabase = ReturnType<typeof createHandbookStore> & {
   path: string
   getApiKey(userId?: string): string | null
   setApiKey(apiKey: string, userId?: string): void
@@ -701,6 +702,7 @@ export function openDatabase(filePath: string, secret: string | null = null): Ap
       return row?.user_id ?? null
     },
     ...createThemeStore(sqlite, uid),
+    ...createHandbookStore(sqlite, uid),
     close() {
       sqlite.close()
     },
