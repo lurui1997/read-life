@@ -199,6 +199,11 @@ export function createHandbook() {
   return request<HandbookView>('/api/handbook', { method: 'POST' })
 }
 
+export function deleteHandbook(handbookId: string, openId?: string | null) {
+  const query = openId ? `?open=${encodeURIComponent(openId)}` : ''
+  return request<HandbookView>(`/api/handbook/${encodeURIComponent(handbookId)}${query}`, { method: 'DELETE' })
+}
+
 export type HandbookShelfBook = { bookId: string; title: string; author: string }
 
 export function searchHandbookBooks(query: string) {

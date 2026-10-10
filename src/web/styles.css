@@ -968,22 +968,25 @@ button:disabled {
   color: var(--ink-muted);
 }
 
-.encounter-count button {
+.encounter-count select,
+.encounter-count input {
   border: 0;
   background: transparent;
-  padding: 0;
   color: var(--accent-deep);
-  cursor: pointer;
   font: inherit;
+  cursor: pointer;
 }
 
-.encounter-count button:hover:not(:disabled) {
-  color: var(--accent);
+.encounter-count select {
+  padding-right: 2px;
 }
 
-.encounter-count button:disabled {
-  opacity: 0.35;
-  cursor: default;
+.encounter-count input {
+  width: 3.5rem;
+  color: var(--ink);
+  text-align: right;
+  border-bottom: 1px solid var(--surface-border);
+  cursor: text;
 }
 
 .nav-text[aria-current='page'] {
@@ -2316,9 +2319,9 @@ button:disabled {
   }
 
   .encounter-refresh,
-  .encounter-count button {
+  .encounter-count select,
+  .encounter-count input {
     min-height: 44px;
-    min-width: 44px;
   }
 
   .shelf-modes {
@@ -3119,11 +3122,19 @@ html[data-scheme="dark"] .share-link input {
 }
 
 .handbook-plate-empty {
-  display: grid;
-  place-items: center;
+  margin: 0;
   color: var(--ink-muted);
   font-family: var(--font-sans);
   font-size: 0.875rem;
+}
+
+.handbook-title::placeholder,
+.handbook-body::placeholder {
+  color: var(--ink-muted);
+}
+
+.handbook-tools {
+  margin-bottom: 28px;
 }
 
 .handbook-title,
@@ -3188,7 +3199,7 @@ html[data-scheme="dark"] .share-link input {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  margin-top: 8px;
+  margin-top: 0;
 }
 
 .handbook-history p {
@@ -3198,24 +3209,42 @@ html[data-scheme="dark"] .share-link input {
   color: var(--ink-muted);
 }
 
-.handbook-history button {
+.handbook-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
   border: 1px solid var(--surface-border);
-  background: transparent;
-  color: var(--ink-soft);
   border-radius: 999px;
-  padding: 6px 12px;
-  font: inherit;
-  font-size: 0.875rem;
-  cursor: pointer;
 }
 
-.handbook-history button[aria-current='true'] {
-  color: var(--ink);
+.handbook-chip[aria-current='true'] {
   border-color: var(--ink);
 }
 
+.handbook-chip button {
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  padding: 6px 4px 6px 12px;
+  font: inherit;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+}
+
+.handbook-chip button[aria-label='删除这本手册'] {
+  flex: 0 0 auto;
+  padding: 6px 12px 6px 8px;
+  color: var(--ink-muted);
+}
+
+.handbook-chip[aria-current='true'] > button:first-child {
+  color: var(--ink);
+}
+
 .handbook-pick {
-  margin-top: 20px;
+  margin-top: 12px;
 }
 
 .handbook-pick p,
@@ -3271,7 +3300,7 @@ html[data-scheme="dark"] .share-link input {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 20px;
+  margin-top: 12px;
 }
 
 .handbook-actions button {

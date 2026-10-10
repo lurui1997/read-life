@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { HANDBOOK_BOOK_LIMIT } from '../shared/handbook'
 import {
   createHandbook,
+  deleteHandbook,
   drawHandbookChapter,
   getHandbook,
   rewriteHandbookChapter,
@@ -22,6 +23,7 @@ export function Handbook() {
   const [matches, setMatches] = useState<HandbookShelfBook[]>([])
   const [picked, setPicked] = useState<HandbookShelfBook[]>([])
   const [handbookId, setHandbookId] = useState<string | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null)
   const wasRunning = useRef(false)
 
   useEffect(() => {
@@ -74,6 +76,7 @@ export function Handbook() {
   const title = showing?.title ?? ''
   const body = showing?.body ?? ''
   const running = view?.job.running === true
+  const written = (view?.chapters ?? []).some((item) => item.title.trim() || item.body.trim())
 
   function edit(next: { title?: string; body?: string }) {
     if (!chapter) return
@@ -99,6 +102,22 @@ export function Handbook() {
       setError('')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '这一章没有保存')
+    }
+  }
+
+  async function remove(item: { id: string; title: string }) {
+    const current = view?.handbookId ?? null
+    if (current && current !== item.id) await persist()
+    try {
+      const next = await deleteHandbook(item.id, current === item.id ? null : current)
+      setDraft(null)
+      if (current === item.id) setPosition(1)
+      setPendingDelete(null)
+      setHandbookId(next.handbookId)
+      setView(next)
+      setError('')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '这本手册没有删掉')
     }
   }
 
@@ -135,66 +154,39 @@ export function Handbook() {
         })}
       </nav>
       <div className="handbook-stage">
-        {chapter ? (
-          <>
-            {chapter.hasImage ? (
-              <img
-                className="handbook-plate"
-                alt=""
-                src={`/api/handbook/chapters/${chapter.position}/image?handbook=${encodeURIComponent(view?.handbookId ?? '')}&v=${imageTick}`}
-              />
-            ) : (
-              <div className="handbook-plate handbook-plate-empty">这一章还没有图</div>
-            )}
-            <input
-              className="handbook-title"
-              aria-label="章名"
-              value={title}
-              disabled={running}
-              onChange={(event) => edit({ title: event.target.value })}
-              onBlur={() => void persist()}
-            />
-            <textarea
-              className="handbook-body"
-              aria-label="正文"
-              value={body}
-              disabled={running}
-              onChange={(event) => edit({ body: event.target.value })}
-              onBlur={() => void persist()}
-            />
-            {chapter.books.length > 0 ? (
-              <ul className="handbook-books">
-                {chapter.books.map((book) => (
-                  <li key={book.bookId}>
-                    <p>《{book.title}》 {book.author}</p>
-                    {book.quotes.map((quote) => <blockquote key={quote}>{quote}</blockquote>)}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </>
-        ) : (
-          <div className="handbook-empty">
-            <h1>人生手册</h1>
-            <p>一次读一章。每次最多选 3 本书，只读这几本。</p>
-          </div>
-        )}
-        {view?.job.running ? <p className="handbook-progress">{view.job.message} {view.job.total > 0 ? `${view.job.done}/${view.job.total}` : ''}</p> : null}
-        {error ? <p className="error">{error}</p> : null}
-        {view && !view.modelReady ? <p className="handbook-note">生成需要本机已登录的 Cursor CLI（agent）。已经写好的章节仍可以阅读和修改。</p> : null}
+        <div className="handbook-tools">
         {view && view.history.length > 0 ? (
           <div className="handbook-history">
             <p>历史手册</p>
-            {view.history.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                aria-current={item.id === view.handbookId ? 'true' : undefined}
-                onClick={() => setHandbookId(item.id)}
-              >
-                {formatHandbookTime(item.createdAt)} {item.title || '未命名'}
-              </button>
-            ))}
+            {view.history.map((item) => {
+              const label = `${formatHandbookTime(item.createdAt)} ${item.title || '未命名'}`
+              return (
+                <span key={item.id} className="handbook-chip" aria-current={item.id === view.handbookId ? 'true' : undefined}>
+                  {pendingDelete === item.id ? (
+                    <>
+                      <button type="button" disabled={running} onClick={() => void remove(item)}>确认删除</button>
+                      <button type="button" onClick={() => setPendingDelete(null)}>取消</button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => {
+                          setPendingDelete(null)
+                          void persist().then(() => setHandbookId(item.id))
+                        }}
+                      >
+                        {label}
+                      </button>
+                      <button type="button" aria-label="删除这本手册" disabled={running} onClick={() => setPendingDelete(item.id)}>
+                        删除
+                      </button>
+                    </>
+                  )}
+                </span>
+              )
+            })}
           </div>
         ) : null}
         <div className="handbook-pick">
@@ -254,7 +246,7 @@ export function Handbook() {
             新建手册
           </button>
           <button type="button" disabled={running || picked.length === 0} onClick={() => void run(() => writeHandbook(picked.map((book) => book.bookId), false))}>
-            {view && view.chapters.length > 0 ? '重写整本' : '写手册'}
+            {written ? '重写整本' : '写手册'}
           </button>
           <button type="button" disabled={running || picked.length === 0} onClick={() => void run(() => writeHandbook(picked.map((book) => book.bookId), true))}>
             连卡片一起重做
@@ -266,6 +258,56 @@ export function Handbook() {
             {chapter?.hasImage ? '重画' : '画这一章'}
           </button>
         </div>
+        {view?.job.running ? <p className="handbook-progress">{view.job.message} {view.job.total > 0 ? `${view.job.done}/${view.job.total}` : ''}</p> : null}
+        {error ? <p className="error">{error}</p> : null}
+        {view && !view.modelReady ? <p className="handbook-note">生成需要本机已登录的 Cursor CLI（agent）。已经写好的章节仍可以阅读和修改。</p> : null}
+        </div>
+        {chapter ? (
+          <>
+            {chapter.hasImage ? (
+              <img
+                className="handbook-plate"
+                alt=""
+                src={`/api/handbook/chapters/${chapter.position}/image?handbook=${encodeURIComponent(view?.handbookId ?? '')}&v=${imageTick}`}
+              />
+            ) : (
+              <p className="handbook-plate-empty">这一章还没有图</p>
+            )}
+            <input
+              className="handbook-title"
+              aria-label="章名"
+              placeholder="章名"
+              value={title}
+              disabled={running}
+              onChange={(event) => edit({ title: event.target.value })}
+              onBlur={() => void persist()}
+            />
+            <textarea
+              className="handbook-body"
+              aria-label="正文"
+              placeholder="这一章写什么"
+              value={body}
+              disabled={running}
+              onChange={(event) => edit({ body: event.target.value })}
+              onBlur={() => void persist()}
+            />
+            {chapter.books.length > 0 ? (
+              <ul className="handbook-books">
+                {chapter.books.map((book) => (
+                  <li key={book.bookId}>
+                    <p>《{book.title}》 {book.author}</p>
+                    {book.quotes.map((quote) => <blockquote key={quote}>{quote}</blockquote>)}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </>
+        ) : (
+          <div className="handbook-empty">
+            <h1>人生手册</h1>
+            <p>一次读一章。每次最多选 3 本书，只读这几本。</p>
+          </div>
+        )}
       </div>
     </section>
   )

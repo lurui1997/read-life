@@ -3,8 +3,9 @@ import { getEncounter } from './api'
 import { encounterHref, type Encounter } from '../shared/encounter'
 
 const countKey = 'read-life.encounter-count'
+const countPresets = [3, 5, 10, 20]
 const minCount = 1
-const maxCount = 12
+const maxCount = 50
 
 export function EncounterPage({
   libraryVersion,
@@ -15,8 +16,12 @@ export function EncounterPage({
 }) {
   const [encounters, setEncounters] = useState<Encounter[] | null>(null)
   const [count, setCount] = useState(readCount)
+  const [custom, setCustom] = useState(() => !countPresets.includes(readCount()))
+  const [draft, setDraft] = useState(() => String(readCount()))
   const [error, setError] = useState('')
   const ticket = useRef(0)
+  const customInput = useRef<HTMLInputElement>(null)
+  const focusCustom = useRef(false)
 
   const load = useCallback((exclude: string[], nextCount: number) => {
     const mine = ++ticket.current
@@ -33,6 +38,17 @@ export function EncounterPage({
   useEffect(() => {
     load([], count)
   }, [libraryVersion, count, load])
+
+  useEffect(() => {
+    setDraft(String(count))
+  }, [count])
+
+  useEffect(() => {
+    if (!custom || !focusCustom.current) return
+    focusCustom.current = false
+    customInput.current?.focus()
+    customInput.current?.select()
+  }, [custom])
 
   const refresh = useCallback(() => {
     load((encounters ?? []).map((item) => item.bookmarkId), count)
@@ -59,6 +75,25 @@ export function EncounterPage({
     } catch {
       // 浏览器拒绝存储时，这次页面里的条数仍然有效
     }
+  }
+
+  function chooseCount(value: string) {
+    if (value === 'custom') {
+      focusCustom.current = true
+      setCustom(true)
+      return
+    }
+    setCustom(false)
+    changeCount(Number(value))
+  }
+
+  function commitDraft() {
+    const next = Number(draft)
+    if (!Number.isInteger(next)) {
+      setDraft(String(count))
+      return
+    }
+    changeCount(next)
   }
 
   return (
@@ -92,15 +127,32 @@ export function EncounterPage({
         <button type="button" className="encounter-refresh" aria-keyshortcuts="r" onClick={refresh}>
           重新随机
         </button>
-        <div className="encounter-count" role="group" aria-label="每次条数">
-          <button type="button" aria-label="少一条" disabled={count <= minCount} onClick={() => changeCount(count - 1)}>
-            −
-          </button>
-          <span>{count} 条</span>
-          <button type="button" aria-label="多一条" disabled={count >= maxCount} onClick={() => changeCount(count + 1)}>
-            +
-          </button>
-        </div>
+        <label className="encounter-count">
+          <select aria-label="每次条数" value={custom ? 'custom' : String(count)} onChange={(event) => chooseCount(event.target.value)}>
+            {countPresets.map((preset) => (
+              <option key={preset} value={preset}>{preset} 条</option>
+            ))}
+            <option value="custom">自定义</option>
+          </select>
+          {custom ? (
+            <input
+              ref={customInput}
+              type="number"
+              inputMode="numeric"
+              min={minCount}
+              max={maxCount}
+              aria-label="自定义条数"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onBlur={commitDraft}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') return
+                event.preventDefault()
+                commitDraft()
+              }}
+            />
+          ) : null}
+        </label>
       </div>
     </section>
   )

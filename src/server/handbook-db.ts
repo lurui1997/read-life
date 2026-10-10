@@ -205,6 +205,20 @@ export function createHandbookStore(sqlite: Database.Database, uid: (userId?: st
       tx()
       return handbookId
     },
+    deleteHandbook(handbookId: string, userId?: string): boolean {
+      const id = uid(userId)
+      const existing = sqlite.prepare(`
+        SELECT 1 AS ok FROM handbooks WHERE user_id = ? AND handbook_id = ?
+      `).get(id, handbookId)
+      if (!existing) return false
+      const tx = sqlite.transaction(() => {
+        sqlite.prepare('DELETE FROM handbook_chapter_books WHERE user_id = ? AND handbook_id = ?').run(id, handbookId)
+        sqlite.prepare('DELETE FROM handbook_chapters WHERE user_id = ? AND handbook_id = ?').run(id, handbookId)
+        sqlite.prepare('DELETE FROM handbooks WHERE user_id = ? AND handbook_id = ?').run(id, handbookId)
+      })
+      tx()
+      return true
+    },
     updateHandbookChapter(handbookId: string, position: number, draft: { title: string; body: string }, userId?: string) {
       sqlite.prepare(`
         UPDATE handbook_chapters
