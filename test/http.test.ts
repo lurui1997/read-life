@@ -205,6 +205,21 @@ describe('开屏一句', () => {
     db.close()
   })
 
+  it('count 决定每次抽出几条，超出范围时夹紧', async () => {
+    const db = tempDb()
+    const ancient = Math.floor(Date.now() / 1000) - 400 * 86400
+    db.upsertShelfBook(shelfBook({ bookId: 'old', title: '旧书', readUpdateTime: ancient }))
+    db.replaceHighlights('old', 2, [{ chapterUid: 4, chapterIdx: 1, title: '夜' }], [
+      { bookmarkId: 'one', chapterUid: 4, markText: '他把窗打开，夜里的风就这样进来了。', range: '10-20' },
+      { bookmarkId: 'two', chapterUid: 4, markText: '他把灯关掉，房间就这样安静下来。', range: '30-40' },
+    ])
+    const app = createApp({ db, createClient: () => fakeWeread({}) })
+    expect((await (await app.request('/api/encounter?count=1')).json()).encounters).toHaveLength(1)
+    expect((await (await app.request('/api/encounter?count=99')).json()).encounters).toHaveLength(2)
+    expect((await (await app.request('/api/encounter?count=0')).json()).encounters).toHaveLength(1)
+    db.close()
+  })
+
   it('没有合格划线时不占开屏', async () => {
     const db = tempDb()
     const app = createApp({ db, createClient: () => fakeWeread({}) })

@@ -484,7 +484,7 @@ export function createApp(options: AppOptions) {
     const exclude = new Set(
       (c.req.query('exclude') ?? '').split(',').map((id) => id.trim()).filter(Boolean).slice(0, 12),
     )
-    const encounters = pickEncounters(db.listHighlightLines(c.get('userId')), new Date(), 3, Math.random, exclude)
+    const encounters = pickEncounters(db.listHighlightLines(c.get('userId')), new Date(), encounterCount(c.req.query('count')), Math.random, exclude)
     return c.json({ encounters })
   })
 
@@ -507,6 +507,15 @@ export function createApp(options: AppOptions) {
   })
 
   app.get('/api/handbook', (c) => c.json(handbookView(c.get('userId'), c.req.query('id') ?? null)))
+
+  app.post('/api/handbook', (c) => {
+    const userId = c.get('userId')
+    const handbookId = db.createHandbook(
+      Array.from({ length: 7 }, () => ({ title: '', body: '', bookIds: [] as string[] })),
+      userId,
+    )
+    return c.json(handbookView(userId, handbookId))
+  })
 
   app.get('/api/handbook/books', (c) => {
     return c.json({ books: db.searchHandbookShelf(c.req.query('q') ?? '', c.get('userId')) })
@@ -555,7 +564,7 @@ export function createApp(options: AppOptions) {
     const title = typeof body?.title === 'string' ? body.title.trim() : ''
     const prose = typeof body?.body === 'string' ? body.body.trim() : ''
     if (!handbookId) return c.json({ error: '还没有这本手册' }, 404)
-    if (!title || !prose) return c.json({ error: '章名和正文不能为空' }, 400)
+    if (!title && !prose) return c.json({ error: '章名和正文不能为空' }, 400)
     if (!db.listHandbookChapters(handbookId, userId).some((chapter) => chapter.position === position)) {
       return c.json({ error: '还没有这一章' }, 404)
     }
@@ -638,6 +647,12 @@ function readScope(kind: string | undefined, key: string | undefined): { kind: S
   const cleaned = key?.trim() ?? ''
   if (!cleaned) return null
   return { kind, key: cleaned }
+}
+
+function encounterCount(raw: string | undefined): number {
+  const count = Number(raw)
+  if (!Number.isInteger(count)) return 3
+  return Math.min(12, Math.max(1, count))
 }
 
 function themeError(c: { json: (body: unknown, status?: number) => Response }, result: ThemeWrite) {

@@ -61,9 +61,10 @@ export function getMapQuotes(category: string) {
   return request<{ quotes: MapQuote[] }>(`/api/map/quotes?${query}`)
 }
 
-export function getEncounter(exclude: string[] = []) {
-  const query = exclude.length > 0 ? `?exclude=${encodeURIComponent(exclude.join(','))}` : ''
-  return request<{ encounters: Encounter[] }>(`/api/encounter${query}`)
+export function getEncounter(exclude: string[] = [], count = 3) {
+  const params = new URLSearchParams({ count: String(count) })
+  if (exclude.length > 0) params.set('exclude', exclude.join(','))
+  return request<{ encounters: Encounter[] }>(`/api/encounter?${params}`)
 }
 
 export type AuthMe = {
@@ -192,6 +193,10 @@ export type HandbookView = {
 export function getHandbook(handbookId?: string | null) {
   const query = handbookId ? `?id=${encodeURIComponent(handbookId)}` : ''
   return request<HandbookView>(`/api/handbook${query}`)
+}
+
+export function createHandbook() {
+  return request<HandbookView>('/api/handbook', { method: 'POST' })
 }
 
 export type HandbookShelfBook = { bookId: string; title: string; author: string }

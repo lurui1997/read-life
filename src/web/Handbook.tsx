@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { HANDBOOK_BOOK_LIMIT } from '../shared/handbook'
 import {
+  createHandbook,
   drawHandbookChapter,
   getHandbook,
   rewriteHandbookChapter,
@@ -86,8 +87,8 @@ export function Handbook() {
   async function persist() {
     if (!chapter || !draft || draft.position !== chapter.position) return
     if (draft.title.trim() === chapter.title && draft.body.trim() === chapter.body) return
-    if (!draft.title.trim() || !draft.body.trim()) {
-      setError('章名和正文不能为空')
+    if (!draft.title.trim() && !draft.body.trim()) {
+      if (chapter.title.trim() || chapter.body.trim()) setError('章名和正文不能为空')
       return
     }
     try {
@@ -241,6 +242,17 @@ export function Handbook() {
           ) : null}
         </div>
         <div className="handbook-actions">
+          <button
+            type="button"
+            disabled={running}
+            onClick={() => void run(async () => {
+              setPosition(1)
+              setDraft(null)
+              return createHandbook()
+            })}
+          >
+            新建手册
+          </button>
           <button type="button" disabled={running || picked.length === 0} onClick={() => void run(() => writeHandbook(picked.map((book) => book.bookId), false))}>
             {view && view.chapters.length > 0 ? '重写整本' : '写手册'}
           </button>

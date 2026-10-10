@@ -940,27 +940,50 @@ button:disabled {
 
 .encounter-page {
   width: 100%;
-  max-width: var(--reading-width);
+  max-width: none;
   min-width: 0;
   animation: page-in 0.5s var(--ease);
 }
 
-.encounter-head h1 {
-  margin: 0 0 6px;
-  font-family: var(--font-display);
-  font-size: 1.75rem;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
-
-.encounter-head p {
-  margin: 0 0 8px;
-}
-
 .encounter-list {
-  margin: 8px 0 0;
+  margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.encounter-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.encounter-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  color: var(--ink-muted);
+}
+
+.encounter-count button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--accent-deep);
+  cursor: pointer;
+  font: inherit;
+}
+
+.encounter-count button:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+.encounter-count button:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .nav-text[aria-current='page'] {
@@ -2292,8 +2315,10 @@ button:disabled {
     font-size: 1.2rem;
   }
 
-  .encounter-refresh {
+  .encounter-refresh,
+  .encounter-count button {
     min-height: 44px;
+    min-width: 44px;
   }
 
   .shelf-modes {

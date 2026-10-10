@@ -275,4 +275,35 @@ describe('人生手册接口', () => {
     expect(kept.chapters[0]?.title).toBe('旧1')
     db.close()
   })
+
+  it('新建一本空白手册，旧的还在', async () => {
+    const db = tempDb()
+    db.createHandbook(Array.from({ length: 7 }, () => ({ title: '旧章', body: '旧正文', bookIds: [] })))
+    const app = createApp({ db, createClient: () => fakeWeread({}) })
+    const before = await app.request('/api/handbook')
+    const olderId = (await before.json() as { handbookId: string }).handbookId
+    const response = await app.request('/api/handbook', { method: 'POST' })
+    expect(response.status).toBe(200)
+    const created = await response.json() as {
+      handbookId: string
+      history: Array<{ id: string; title: string }>
+      chapters: Array<{ title: string; body: string; books: unknown[] }>
+    }
+    expect(created.handbookId).not.toBe(olderId)
+    expect(created.history).toHaveLength(2)
+    expect(created.chapters).toHaveLength(7)
+    expect(created.chapters.every((chapter) => chapter.title === '' && chapter.body === '' && chapter.books.length === 0)).toBe(true)
+    const older = await app.request(`/api/handbook?id=${olderId}`)
+    const kept = await older.json() as { chapters: Array<{ title: string }> }
+    expect(kept.chapters[0]?.title).toBe('旧章')
+    const named = await app.request('/api/handbook/chapters/1', {
+      method: 'PATCH',
+      body: JSON.stringify({ handbookId: created.handbookId, title: '手写的第一章', body: '' }),
+    })
+    expect(named.status).toBe(200)
+    const namedBody = await named.json() as { chapters: Array<{ title: string; body: string }> }
+    expect(namedBody.chapters[0]?.title).toBe('手写的第一章')
+    expect(namedBody.chapters[0]?.body).toBe('')
+    db.close()
+  })
 })
