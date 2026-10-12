@@ -52,6 +52,7 @@ export function EncounterPage({
 
   const refresh = useCallback(() => {
     load((encounters ?? []).map((item) => item.bookmarkId), count)
+    window.scrollTo({ top: 0, behavior: 'auto' })
   }, [count, encounters, load])
 
   useEffect(() => {

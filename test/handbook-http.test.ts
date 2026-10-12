@@ -66,6 +66,31 @@ async function settle(app: ReturnType<typeof createApp>) {
 }
 
 describe('人生手册接口', () => {
+  it('一本书再长也只读一次', async () => {
+    const db = tempDb()
+    seed(db, 'a', '甲书', '首段标记甲')
+    const highlights = Array.from({ length: 40 }, (_, index) => ({
+      bookmarkId: `a-${index}`,
+      chapterUid: 1,
+      markText: index === 0 ? `首段标记甲${'划'.repeat(400)}` : index === 39 ? `末段标记乙${'划'.repeat(400)}` : `${'划'.repeat(400)}第${index}段`,
+      range: null,
+    }))
+    db.replaceHighlights('a', 1, [{ chapterUid: 1, chapterIdx: 1, title: '第一章' }], highlights)
+    const model = modelFrom(async (prompt) => {
+      if (prompt.includes('一张不超过 180 字')) return '一张卡片'
+      return JSON.stringify(seven(['a']))
+    })
+    const app = createApp({ db, createClient: () => fakeWeread({}), handbookModel: model })
+    await app.request('/api/handbook/write', { method: 'POST', body: JSON.stringify({ bookIds: ['a'] }) })
+    await settle(app)
+    const cardPrompts = model.prompts.filter((prompt) => prompt.includes('一张不超过 180 字'))
+    expect(cardPrompts).toHaveLength(1)
+    expect(cardPrompts[0]).toContain('首段标记甲')
+    expect(cardPrompts[0]).toContain('末段标记乙')
+    expect(cardPrompts[0]!.length).toBeLessThan(8000)
+    db.close()
+  })
+
   it('按书切开，七章正文不包含原始划线', async () => {
     const db = tempDb()
     seed(db, 'a', '甲书', '甲书独有句子阿尔法')

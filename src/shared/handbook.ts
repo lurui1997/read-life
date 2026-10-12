@@ -1,5 +1,6 @@
 export const HIGHLIGHT_CHUNK_CHARS = 2500
 export const CHAPTER_INPUT_CHARS = 7000
+export const CARD_EVIDENCE_CHARS = 4000
 export const HANDBOOK_BOOK_LIMIT = 3
 
 export function handbookBookIds(value: unknown): string[] {
@@ -83,6 +84,53 @@ export function chunkBook(book: HandbookBookSource, budget = HIGHLIGHT_CHUNK_CHA
     parts: groups.length,
     highlights,
   }))
+}
+
+export function evidenceForBook(book: HandbookBookSource, budget = CARD_EVIDENCE_CHARS): BookChunk {
+  return {
+    bookId: book.bookId,
+    title: book.title,
+    author: book.author,
+    category: book.category,
+    progress: book.progress,
+    finishReading: book.finishReading,
+    part: 1,
+    parts: 1,
+    highlights: spreadHighlights(book.highlights, budget),
+  }
+}
+
+function spreadHighlights(highlights: HandbookHighlight[], budget: number): HandbookHighlight[] {
+  const clipped = highlights.flatMap((highlight) => {
+    const markText = highlight.markText.replace(/\s+/g, ' ').trim().slice(0, 120)
+    return markText ? [{ chapterTitle: highlight.chapterTitle, markText }] : []
+  })
+  if (clipped.length === 0) return []
+  const sizeOf = (items: HandbookHighlight[]) => items.reduce((sum, item) => sum + item.markText.length + item.chapterTitle.length, 0)
+  if (sizeOf(clipped) <= budget) return clipped
+  let low = 1
+  let high = clipped.length
+  let best = takeEven(clipped, 1)
+  while (low <= high) {
+    const count = Math.floor((low + high) / 2)
+    const sample = takeEven(clipped, count)
+    if (sizeOf(sample) <= budget) {
+      best = sample
+      low = count + 1
+    } else {
+      high = count - 1
+    }
+  }
+  return best
+}
+
+function takeEven<T>(items: T[], count: number): T[] {
+  if (count >= items.length) return items.slice()
+  const indexes = new Set<number>()
+  for (let i = 0; i < count; i += 1) {
+    indexes.add(Math.round((i * (items.length - 1)) / Math.max(1, count - 1)))
+  }
+  return [...indexes].sort((left, right) => left - right).map((index) => items[index]!)
 }
 
 export function cardPrompt(chunk: BookChunk, previousCard: string | null): string {

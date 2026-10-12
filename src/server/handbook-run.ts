@@ -3,7 +3,7 @@ import {
   cardPrompt,
   cardsSource,
   chaptersPrompt,
-  chunkBook,
+  evidenceForBook,
   digestPrompt,
   drawPrompt,
   parseCard,
@@ -27,10 +27,7 @@ export async function buildHandbookCards(store: Store, model: HandbookModel, use
   onProgress(0, books.length, '开始读书架')
   for (const [index, book] of books.entries()) {
     onProgress(index, books.length, `正在读《${book.title}》`)
-    let card = ''
-    for (const chunk of chunkBook(book)) {
-      card = parseCard(await model.complete(cardPrompt(chunk, card || null)))
-    }
+    const card = parseCard(await model.complete(cardPrompt(evidenceForBook(book), null)))
     store.saveHandbookCard({ bookId: book.bookId, title: book.title, author: book.author, card }, userId)
     onProgress(index + 1, books.length, `已读《${book.title}》`)
   }
