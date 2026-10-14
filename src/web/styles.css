@@ -2504,7 +2504,8 @@ button:disabled {
 .map-zoom button,
 .map-panel-close,
 .map-quotes button,
-.map-books button {
+.map-books a,
+.map-book-sort button {
   font-family: var(--font-sans);
   color: #f3f3f3;
   background: transparent;
@@ -2690,7 +2691,7 @@ button:disabled {
 }
 
 .map-quotes button,
-.map-books button {
+.map-books a {
   width: 100%;
   text-align: left;
   padding: 10px 0;
@@ -2714,7 +2715,32 @@ button:disabled {
   color: rgba(255, 255, 255, 0.48);
 }
 
-.map-books button {
+.map-book-sort {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 0;
+  background: rgba(14, 14, 14, 0.94);
+}
+
+.map-book-sort button {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.map-book-sort button.on {
+  color: #141414;
+  background: #fff8ea;
+  border-color: #fff8ea;
+}
+
+.map-books a {
   display: flex;
   justify-content: space-between;
   gap: 12px;

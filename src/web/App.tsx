@@ -23,18 +23,25 @@ type Route =
   | { name: 'map' }
   | { name: 'handbook' }
   | { name: 'encounter' }
-  | { name: 'share'; token: string; bookId: string | null }
+  | { name: 'share'; token: string; page: 'shelf' | 'book' | 'encounter' | 'map'; bookId: string | null }
+
+function readShare(path: string): Route | null {
+  const share = path.match(/^\/s\/([^/]+)(\/.*)?$/)
+  if (!share?.[1]) return null
+  const token = decodeURIComponent(share[1])
+  const rest = share[2] ?? ''
+  if (rest === '' || rest === '/') return { name: 'share', token, page: 'shelf', bookId: null }
+  if (rest === '/encounter') return { name: 'share', token, page: 'encounter', bookId: null }
+  if (rest === '/map') return { name: 'share', token, page: 'map', bookId: null }
+  const book = rest.match(/^\/book\/(.+)$/)
+  if (book?.[1]) return { name: 'share', token, page: 'book', bookId: decodeURIComponent(book[1]) }
+  return null
+}
 
 function readRoute(): Route {
   const path = window.location.pathname
-  const share = path.match(/^\/s\/([^/]+)(?:\/book\/(.+))?$/)
-  if (share?.[1]) {
-    return {
-      name: 'share',
-      token: decodeURIComponent(share[1]),
-      bookId: share[2] ? decodeURIComponent(share[2]) : null,
-    }
-  }
+  const share = readShare(path)
+  if (share) return share
   if (path === '/settings') return { name: 'settings' }
   if (path === '/login') return { name: 'login' }
   if (path === '/register') return { name: 'register' }
@@ -148,12 +155,13 @@ export function App() {
   const onShelf = route.name === 'shelf'
   const onBook = route.name === 'book'
   const shelfChrome = onShelf || route.name === 'settings'
-  const minimalNav = shelfChrome || onBook || route.name === 'handbook' || route.name === 'encounter'
+  const shareHome = route.name === 'share' ? `/s/${encodeURIComponent(route.token)}` : '/'
+  const minimalNav = shelfChrome || onBook || route.name === 'handbook' || route.name === 'encounter' || (route.name === 'share' && route.page !== 'map')
 
   return (
     <div className={`app app-${route.name}`}>
       <header className={shelfChrome ? 'topbar topbar-shelf' : 'topbar'}>
-        <a className="brand" href="/" onClick={(event) => { event.preventDefault(); go('/') }}>
+        <a className="brand" href={shareHome} onClick={(event) => { event.preventDefault(); go(shareHome) }}>
           <span className="brand-mark" aria-hidden="true" />
           折角
         </a>
@@ -170,7 +178,12 @@ export function App() {
           >
             {themeOptions.find((item) => item.id === theme)?.label ?? '跟随系统'}
           </button>
-          {route.name === 'share' ? null : me?.authRequired && !me.user ? (
+          {route.name === 'share' ? (
+            <>
+              <a className="nav-text" href={`${shareHome}/encounter`} aria-current={route.page === 'encounter' ? 'page' : undefined} onClick={(event) => { event.preventDefault(); go(`${shareHome}/encounter`) }}>划线</a>
+              <a className="nav-text nav-map" href={`${shareHome}/map`} onClick={(event) => { event.preventDefault(); go(`${shareHome}/map`) }}>地图</a>
+            </>
+          ) : me?.authRequired && !me.user ? (
             <a className="nav-text" href="/login" onClick={(event) => { event.preventDefault(); go('/login') }}>登录</a>
           ) : (
             <>
@@ -221,19 +234,25 @@ export function App() {
           freshIds={sync?.recent.map((item) => item.bookId) ?? []}
         />
       ) : null}
-      {route.name === 'share' && route.bookId == null ? <ShareShelf token={route.token} /> : null}
-      {route.name === 'share' && route.bookId != null ? (
+      {route.name === 'share' && route.page === 'shelf' ? <ShareShelf token={route.token} /> : null}
+      {route.name === 'share' && route.page === 'book' && route.bookId != null ? (
         <BookPage
           bookId={route.bookId}
           libraryVersion={libraryVersion}
           shared
           shareToken={route.token}
-          onBack={() => go(`/s/${encodeURIComponent(route.token)}`)}
+          onBack={() => go(shareHome)}
         />
       ) : null}
-      {route.name === 'map' ? <ReadingMap onClose={() => go('/')} onOpen={(href) => go(href)} /> : null}
+      {route.name === 'share' && route.page === 'encounter' ? (
+        <EncounterPage libraryVersion={0} shareToken={route.token} />
+      ) : null}
+      {route.name === 'share' && route.page === 'map' ? (
+        <ReadingMap shareToken={route.token} onClose={() => go(shareHome)} />
+      ) : null}
+      {route.name === 'map' ? <ReadingMap onClose={() => go('/')} /> : null}
       {route.name === 'handbook' ? <Handbook /> : null}
-      {route.name === 'encounter' ? <EncounterPage libraryVersion={libraryVersion} onOpen={go} /> : null}
+      {route.name === 'encounter' ? <EncounterPage libraryVersion={libraryVersion} /> : null}
       {route.name === 'book' ? (
         <BookPage bookId={route.bookId} libraryVersion={libraryVersion} onBack={() => go('/')} />
       ) : null}
@@ -905,7 +924,7 @@ function SharePanel() {
   return (
     <section className="settings-panel">
       <h2>分享书架</h2>
-      <p className="muted">打开后，知道链接的人可以查看你的书架和划线。可以随时关闭。</p>
+      <p className="muted">打开后，知道链接的人可以查看你的书架、划线和地图。可以随时关闭。</p>
       {share?.enabled && link ? (
         <div className="share-link">
           <input readOnly value={link} aria-label="分享链接" onFocus={(event) => event.currentTarget.select()} />

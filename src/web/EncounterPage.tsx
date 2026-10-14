@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getEncounter } from './api'
-import { encounterHref, type Encounter } from '../shared/encounter'
+import { flushSync } from 'react-dom'
+import { getEncounter, getPublicEncounter } from './api'
+import { encounterHref, sharedBookHref, type Encounter } from '../shared/encounter'
 
 const countKey = 'read-life.encounter-count'
 const countPresets = [3, 5, 10, 20]
@@ -9,10 +10,10 @@ const maxCount = 50
 
 export function EncounterPage({
   libraryVersion,
-  onOpen,
+  shareToken,
 }: {
   libraryVersion: number
-  onOpen: (href: string) => void
+  shareToken?: string
 }) {
   const [encounters, setEncounters] = useState<Encounter[] | null>(null)
   const [count, setCount] = useState(readCount)
@@ -23,17 +24,20 @@ export function EncounterPage({
   const customInput = useRef<HTMLInputElement>(null)
   const focusCustom = useRef(false)
 
-  const load = useCallback((exclude: string[], nextCount: number) => {
+  const load = useCallback((exclude: string[], nextCount: number, scroll = false) => {
     const mine = ++ticket.current
     setError('')
-    void getEncounter(exclude, nextCount)
+    const request = shareToken ? getPublicEncounter(shareToken, exclude, nextCount) : getEncounter(exclude, nextCount)
+    void request
       .then((next) => {
-        if (mine === ticket.current) setEncounters(next.encounters)
+        if (mine !== ticket.current) return
+        flushSync(() => setEncounters(next.encounters))
+        if (scroll) window.scrollTo({ top: 0, behavior: 'auto' })
       })
       .catch((reason: Error) => {
         if (mine === ticket.current) setError(reason.message)
       })
-  }, [])
+  }, [shareToken])
 
   useEffect(() => {
     load([], count)
@@ -51,8 +55,7 @@ export function EncounterPage({
   }, [custom])
 
   const refresh = useCallback(() => {
-    load((encounters ?? []).map((item) => item.bookmarkId), count)
-    window.scrollTo({ top: 0, behavior: 'auto' })
+    load((encounters ?? []).map((item) => item.bookmarkId), count, true)
   }, [count, encounters, load])
 
   useEffect(() => {
@@ -108,11 +111,9 @@ export function EncounterPage({
             <li key={encounter.bookmarkId}>
               <a
                 className="encounter"
-                href={encounterHref(encounter.bookId, encounter.bookmarkId)}
-                onClick={(event) => {
-                  event.preventDefault()
-                  onOpen(encounterHref(encounter.bookId, encounter.bookmarkId))
-                }}
+                href={shareToken ? sharedBookHref(shareToken, encounter.bookId, encounter.bookmarkId) : encounterHref(encounter.bookId, encounter.bookmarkId)}
+                target="_blank"
+                rel="noreferrer"
               >
                 <p className="encounter-line">{encounter.markText}</p>
                 <span className="encounter-meta">

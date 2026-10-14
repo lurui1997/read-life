@@ -252,6 +252,55 @@ describe('微信读书客户端', () => {
   })
 })
 
+describe('分享书架', () => {
+  it('同一条链接可以看划线和地图，关掉后不能看', async () => {
+    const db = tempDb()
+    const mark = '把复杂的事情拆成可以行走的一步。'
+    db.upsertShelfBook({
+      bookId: '1',
+      title: '思考的技术',
+      author: '甲',
+      cover: '',
+      readUpdateTime: localTimestamp(2024),
+      category: '个人成长-认知思维',
+    }, 'owner')
+    db.replaceHighlights('1', 1, [{ chapterUid: 1, chapterIdx: 1, title: '章' }], [
+      { bookmarkId: 'h1', chapterUid: 1, markText: mark, range: null },
+    ], 'owner')
+    db.upsertShelfBook({
+      bookId: 'secret',
+      title: '不该出现',
+      author: '',
+      cover: '',
+      readUpdateTime: localTimestamp(2024),
+      category: '文学-散文',
+    }, 'other')
+    db.setShare('owner', { enabled: true, token: 'tok' })
+    const app = createApp({ db, createClient: () => fakeWeread({}), authRequired: true })
+
+    const locked = await app.request('/api/map')
+    expect(locked.status).toBe(401)
+
+    const map = await app.request('/api/public/shelves/tok/map')
+    expect(map.status).toBe(200)
+    const books = (await map.json() as { books: Array<{ bookId: string }> }).books
+    expect(books.map((book) => book.bookId)).toEqual(['1'])
+
+    const quotes = await app.request(`/api/public/shelves/tok/map/quotes?category=${encodeURIComponent('个人成长-认知思维')}`)
+    expect(quotes.status).toBe(200)
+    expect((await quotes.json() as { quotes: Array<{ markText: string }> }).quotes[0]?.markText).toBe(mark)
+
+    const lines = await app.request('/api/public/shelves/tok/encounter?count=1')
+    expect(lines.status).toBe(200)
+    expect((await lines.json() as { encounters: Array<{ bookmarkId: string }> }).encounters[0]?.bookmarkId).toBe('h1')
+
+    db.disableShare('owner')
+    expect((await app.request('/api/public/shelves/tok/map')).status).toBe(404)
+    expect((await app.request('/api/public/shelves/tok/encounter')).status).toBe(404)
+    db.close()
+  })
+})
+
 describe('同步记录给页面', () => {
   it('结束后的状态能被读到，且不含 Key', async () => {
     const db = tempDb()

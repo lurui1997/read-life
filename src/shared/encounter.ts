@@ -66,6 +66,11 @@ export function encounterHref(bookId: string, bookmarkId: string): string {
   return `/book/${encodeURIComponent(bookId)}#h=${encodeURIComponent(bookmarkId)}`
 }
 
+export function sharedBookHref(token: string, bookId: string, bookmarkId?: string): string {
+  const path = `/s/${encodeURIComponent(token)}/book/${encodeURIComponent(bookId)}`
+  return bookmarkId ? `${path}#h=${encodeURIComponent(bookmarkId)}` : path
+}
+
 export function bookmarkIdFromHash(hash: string): string | null {
   if (!hash.startsWith('#h=')) return null
   try {

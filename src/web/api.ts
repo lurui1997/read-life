@@ -126,6 +126,21 @@ export function getPublicBook(token: string, bookId: string) {
   return request<BookDetail>(`/api/public/shelves/${encodeURIComponent(token)}/books/${encodeURIComponent(bookId)}`)
 }
 
+export function getPublicMap(token: string) {
+  return request<{ books: MapSourceBook[] }>(`/api/public/shelves/${encodeURIComponent(token)}/map`)
+}
+
+export function getPublicMapQuotes(token: string, category: string) {
+  const query = new URLSearchParams({ category })
+  return request<{ quotes: MapQuote[] }>(`/api/public/shelves/${encodeURIComponent(token)}/map/quotes?${query}`)
+}
+
+export function getPublicEncounter(token: string, exclude: string[] = [], count = 3) {
+  const params = new URLSearchParams({ count: String(count) })
+  if (exclude.length > 0) params.set('exclude', exclude.join(','))
+  return request<{ encounters: Encounter[] }>(`/api/public/shelves/${encodeURIComponent(token)}/encounter?${params}`)
+}
+
 export function getThemeScopes() {
   return request<{ categories: ThemeScopeOption[]; groups: ThemeScopeOption[]; recent: ThemeScopeOption }>('/api/themes/scopes')
 }

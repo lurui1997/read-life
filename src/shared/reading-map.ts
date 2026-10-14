@@ -92,7 +92,24 @@ export function listMonths(books: MapSourceBook[]): MapMonth[] {
 
 export function filterBooksByMonth(books: MapSourceBook[], month: string | null): MapSourceBook[] {
   if (!month) return books
-  return books.filter((book) => book.readUpdateTime != null && book.readUpdateTime > 0 && monthKey(book.readUpdateTime) === month)
+  return books.filter((book) => book.readUpdateTime != null && book.readUpdateTime > 0 && monthKey(book.readUpdateTime) <= month)
+}
+
+export function peaksThroughMonth(books: MapSourceBook[], month: string | null, options?: { total?: number }): MapPeak[] {
+  const layout = buildPeaks(books, options)
+  if (!month) return layout
+  const visible = filterBooksByMonth(books, month)
+  return layout.flatMap((peak) => {
+    let highlightCount = 0
+    let bookCount = 0
+    for (const book of visible) {
+      if (!peak.categories.includes(book.category)) continue
+      highlightCount += book.highlightCount
+      bookCount += 1
+    }
+    if (bookCount === 0) return []
+    return [{ ...peak, highlightCount, bookCount, weight: highlightCount * 4 + bookCount }]
+  })
 }
 
 export function buildPeaks(
@@ -454,4 +471,21 @@ export function booksForPeak(books: MapSourceBook[], peak: MapPeak, month: strin
   return filterBooksByMonth(books, month)
     .filter((book) => categories.has(book.category))
     .sort((left, right) => right.highlightCount - left.highlightCount || left.title.localeCompare(right.title, 'zh'))
+}
+
+export function orderPeakBooks(books: MapSourceBook[], order: 'highlight' | 'random', seed = 1): MapSourceBook[] {
+  if (order !== 'random') return books
+  const result = [...books]
+  let state = seed >>> 0 || 1
+  const next = () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0
+    return state / 0x1_0000_0000
+  }
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(next() * (index + 1))
+    const current = result[index]!
+    result[index] = result[swap]!
+    result[swap] = current
+  }
+  return result
 }

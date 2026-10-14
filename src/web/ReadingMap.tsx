@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { encounterHref } from '../shared/encounter'
+import { sharedBookHref } from '../shared/encounter'
 import {
   booksForPeak,
-  buildPeaks,
   buildTerrain,
-  filterBooksByMonth,
   formatMonth,
+  orderPeakBooks,
+  peaksThroughMonth,
   listMonths,
   pickMapHit,
   placeMapLabels,
@@ -15,11 +15,10 @@ import {
   type MapLabelHit,
   type MapPeak,
   type MapPointHit,
-  type MapQuote,
   type MapSourceBook,
   type Terrain,
 } from '../shared/reading-map'
-import { getMap, getMapQuotes } from './api'
+import { getMap, getPublicMap } from './api'
 
 const HOME_YAW = -0.35
 const OBLIQUE_PITCH = 0.74
@@ -28,10 +27,10 @@ const HEIGHT_SCALE = 0.38
 
 type ReadingMapProps = {
   onClose: () => void
-  onOpen: (href: string) => void
+  shareToken?: string
 }
 
-export function ReadingMap({ onClose, onOpen }: ReadingMapProps) {
+export function ReadingMap({ onClose, shareToken }: ReadingMapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const camera = useRef({ yaw: HOME_YAW, pitch: OBLIQUE_PITCH, targetPitch: OBLIQUE_PITCH, zoom: 1 })
   const drag = useRef<{ x: number; y: number; yaw: number; moved: boolean } | null>(null)
@@ -51,22 +50,27 @@ export function ReadingMap({ onClose, onOpen }: ReadingMapProps) {
   const [grabbing, setGrabbing] = useState(false)
   const [pointing, setPointing] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [quotes, setQuotes] = useState<MapQuote[] | null>(null)
+  const [bookOrder, setBookOrder] = useState<'highlight' | 'random'>('highlight')
+  const [shuffleSeed, setShuffleSeed] = useState(1)
 
   const months = useMemo(() => (books ? listMonths(books) : []), [books])
   const peaks = useMemo(
-    () => (books ? buildPeaks(filterBooksByMonth(books, month)) : []),
+    () => (books ? peaksThroughMonth(books, month) : []),
     [books, month],
   )
   const terrain = useMemo(() => buildTerrain(peaks), [peaks])
   const selected = peaks.find((peak) => peak.id === selectedId) ?? null
-  const selectedBooks = selected && books ? booksForPeak(books, selected, month).slice(0, 8) : []
+  const selectedBooks = useMemo(() => {
+    if (!selected || !books) return []
+    return orderPeakBooks(booksForPeak(books, selected, month), bookOrder, shuffleSeed)
+  }, [books, bookOrder, month, selected, shuffleSeed])
 
   scene.current = { peaks, terrain, selectedId }
 
   useEffect(() => {
     let stop = false
-    void getMap()
+    const request = shareToken ? getPublicMap(shareToken) : getMap()
+    void request
       .then((response) => {
         if (!stop) setBooks(response.books)
       })
@@ -76,31 +80,11 @@ export function ReadingMap({ onClose, onOpen }: ReadingMapProps) {
     return () => {
       stop = true
     }
-  }, [])
+  }, [shareToken])
 
   useEffect(() => {
     if (selectedId && !peaks.some((peak) => peak.id === selectedId)) setSelectedId(null)
   }, [peaks, selectedId])
-
-  useEffect(() => {
-    if (!selected || selected.categories.length !== 1) {
-      setQuotes(selected ? [] : null)
-      return
-    }
-    const category = selected.categories[0]
-    let stop = false
-    setQuotes(null)
-    void getMapQuotes(category)
-      .then((response) => {
-        if (!stop) setQuotes(response.quotes)
-      })
-      .catch(() => {
-        if (!stop) setQuotes([])
-      })
-    return () => {
-      stop = true
-    }
-  }, [selected])
 
   useEffect(() => {
     if (!playing) return
@@ -313,32 +297,37 @@ export function ReadingMap({ onClose, onOpen }: ReadingMapProps) {
             </button>
           </div>
           <h2>{selected.label}</h2>
-          <p className="map-panel-meta">{selected.bookCount} 本 · {selected.highlightCount.toLocaleString('zh-CN')} 条划线</p>
-          {selected.categories.length === 1 && quotes == null ? <p className="map-panel-wait">正在翻划线…</p> : null}
-          {selected.categories.length === 1 && quotes && quotes.length === 0 ? <p className="map-panel-wait">这个峰还没有划线。</p> : null}
-          {selected.categories.length === 1 && quotes && quotes.length > 0 ? (
-            <ul className="map-quotes">
-              {quotes.map((quote) => (
-                <li key={quote.bookmarkId}>
-                  <button type="button" onClick={() => onOpen(encounterHref(quote.bookId, quote.bookmarkId))}>
-                    <span className="map-quote-text">{quote.markText}</span>
-                    <span className="map-quote-book">{quote.title}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : null}
+          <p className="map-panel-meta">{selected.bookCount.toLocaleString('zh-CN')} 本</p>
           {selectedBooks.length > 0 ? (
-            <ul className="map-books">
-              {selectedBooks.map((book) => (
-                <li key={book.bookId}>
-                  <button type="button" onClick={() => onOpen(`/book/${encodeURIComponent(book.bookId)}`)}>
-                    <span>{book.title}</span>
-                    <em>{book.highlightCount > 0 ? `${book.highlightCount} 条` : '在读'}</em>
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <>
+              <div className="map-book-sort" role="group" aria-label="书籍排序">
+                <button type="button" className={bookOrder === 'highlight' ? 'on' : ''} aria-pressed={bookOrder === 'highlight'} onClick={() => setBookOrder('highlight')}>按划线</button>
+                <button
+                  type="button"
+                  className={bookOrder === 'random' ? 'on' : ''}
+                  aria-pressed={bookOrder === 'random'}
+                  onClick={() => {
+                    setBookOrder('random')
+                    setShuffleSeed(Date.now())
+                  }}
+                >
+                  随机
+                </button>
+              </div>
+              <ul className="map-books">
+                {selectedBooks.map((book) => {
+                  const href = shareToken ? sharedBookHref(shareToken, book.bookId) : `/book/${encodeURIComponent(book.bookId)}`
+                  return (
+                    <li key={book.bookId}>
+                      <a href={href} target="_blank" rel="noreferrer">
+                        <span>{book.title}</span>
+                        <em>{book.highlightCount > 0 ? `${book.highlightCount} 条` : '在读'}</em>
+                      </a>
+                    </li>
+                  )
+                })}
+              </ul>
+            </>
           ) : null}
         </aside>
       ) : null}
@@ -377,7 +366,7 @@ export function ReadingMap({ onClose, onOpen }: ReadingMapProps) {
         <button type="button" className="map-share" onClick={() => void share()}>分享图</button>
       </div>
       <p className="map-note">
-        {peaks.reduce((sum, peak) => sum + peak.bookCount, 0).toLocaleString('zh-CN')} 本 · 与书架同一批在架书
+        {peaks.reduce((sum, peak) => sum + peak.bookCount, 0).toLocaleString('zh-CN')} 本 · {month ? `截至${monthLabel}` : '与书架同一批在架书'}
       </p>
 
       {error ? <p className="map-status">{error}</p> : null}

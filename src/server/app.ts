@@ -390,6 +390,30 @@ export function createApp(options: AppOptions) {
     return c.json(detail)
   })
 
+  app.get('/api/public/shelves/:token/encounter', (c) => {
+    const ownerId = db.findEnabledShare(c.req.param('token'))
+    if (!ownerId) return c.json({ error: '分享已关闭' }, 404)
+    const exclude = new Set(
+      (c.req.query('exclude') ?? '').split(',').map((id) => id.trim()).filter(Boolean).slice(0, 50),
+    )
+    const encounters = pickEncounters(db.listHighlightLines(ownerId), new Date(), encounterCount(c.req.query('count')), Math.random, exclude)
+    return c.json({ encounters })
+  })
+
+  app.get('/api/public/shelves/:token/map/quotes', (c) => {
+    const ownerId = db.findEnabledShare(c.req.param('token'))
+    if (!ownerId) return c.json({ error: '分享已关闭' }, 404)
+    const category = c.req.query('category')?.trim() ?? ''
+    if (!category) return c.json({ error: '缺少分类' }, 400)
+    return c.json({ quotes: db.listMapQuotes(category, ownerId) })
+  })
+
+  app.get('/api/public/shelves/:token/map', (c) => {
+    const ownerId = db.findEnabledShare(c.req.param('token'))
+    if (!ownerId) return c.json({ error: '分享已关闭' }, 404)
+    return c.json({ books: db.listMapBooks(ownerId) })
+  })
+
   app.get('/api/public/shelves/:token', (c) => {
     const ownerId = db.findEnabledShare(c.req.param('token'))
     if (!ownerId) return c.json({ error: '分享已关闭' }, 404)

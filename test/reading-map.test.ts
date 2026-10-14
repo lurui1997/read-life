@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { createApp } from '../src/server/app'
 import {
   booksForPeak,
+  orderPeakBooks,
   buildPeaks,
   buildTerrain,
   filterBooksByMonth,
   listMonths,
+  peaksThroughMonth,
   pickMapHit,
   placeMapLabels,
   projectMapPoint,
@@ -103,12 +105,24 @@ describe('阅读地图', () => {
     expect(labels.filter((label) => label.endsWith('财经')).every((label) => label.includes('·'))).toBe(true)
   })
 
-  it('按月份只保留当月读过的书', () => {
-    const books = [source('历史-历史读物', 5, 8), source('历史-历史读物', 3, 9, 1)]
+  it('记录足迹逐月累加，同一座峰留在原地', () => {
+    const books = [source('历史-历史读物', 5, 8), source('历史-历史读物', 3, 9, 1), source('文学-散文', 8, 9, 2)]
     expect(listMonths(books).map((month) => month.label)).toEqual(['2026年08月', '2026年09月'])
-    expect(filterBooksByMonth(books, '2026-09')).toHaveLength(1)
-    const peaks = buildPeaks(filterBooksByMonth(books, '2026-09'))
-    expect(booksForPeak(books, peaks[0], '2026-09').map((book) => book.highlightCount)).toEqual([3])
+    expect(filterBooksByMonth(books, '2026-08')).toHaveLength(1)
+    expect(filterBooksByMonth(books, '2026-09')).toHaveLength(3)
+    const august = peaksThroughMonth(books, '2026-08')
+    const september = peaksThroughMonth(books, '2026-09')
+    const history = (peaks: typeof august) => peaks.find((peak) => peak.categories.includes('历史-历史读物'))
+    expect(history(august)?.bookCount).toBe(1)
+    expect(history(september)?.bookCount).toBe(2)
+    expect(history(august)?.x).toBe(history(september)?.x)
+    expect(history(august)?.y).toBe(history(september)?.y)
+    expect(september.some((peak) => peak.categories.includes('文学-散文'))).toBe(true)
+    expect(august.some((peak) => peak.categories.includes('文学-散文'))).toBe(false)
+    const full = peaksThroughMonth(books, null)
+    expect(history(september)?.x).toBe(history(full)?.x)
+    expect(history(september)?.y).toBe(history(full)?.y)
+    expect(booksForPeak(books, history(september)!, '2026-09').map((book) => book.highlightCount).sort()).toEqual([3, 5])
   })
 
   it('等高线外圈比内圈更宽，高处的点投得更靠上', () => {
@@ -135,7 +149,13 @@ describe('阅读地图', () => {
     expect(peaks.reduce((sum, peak) => sum + peak.bookCount, 0)).toBe(books.length)
     const rest = peaks.find((peak) => peak.id === '__rest__')
     expect(rest?.bookCount).toBe(3)
-    expect(booksForPeak(books, rest!, null)).toHaveLength(3)
+    const listed = booksForPeak(books, rest!, null)
+    expect(listed).toHaveLength(3)
+    expect(orderPeakBooks(listed, 'highlight').map((book) => book.bookId)).toEqual(listed.map((book) => book.bookId))
+    const shuffled = orderPeakBooks(listed, 'random', 7)
+    expect(shuffled.map((book) => book.bookId).sort()).toEqual(listed.map((book) => book.bookId).sort())
+    expect(orderPeakBooks(listed, 'random', 7).map((book) => book.bookId)).toEqual(shuffled.map((book) => book.bookId))
+    expect(orderPeakBooks(listed, 'random', 8).map((book) => book.bookId)).not.toEqual(shuffled.map((book) => book.bookId))
   })
 
   it('点在光点上会选中这座峰，比文字更优先', () => {
