@@ -396,6 +396,13 @@ export function createApp(options: AppOptions) {
     return c.json(drawEncounters(db, ownerId, c.req.query('count'), c.req.query('scope'), c.req.query('view'), c.req.query('exclude')))
   })
 
+  app.post('/api/public/shelves/:token/encounter', async (c) => {
+    const ownerId = db.findEnabledShare(c.req.param('token'))
+    if (!ownerId) return c.json({ error: '分享已关闭' }, 404)
+    const body = await readEncounterBody(c)
+    return c.json(drawEncounters(db, ownerId, body.count, body.scope, body.view, body.exclude))
+  })
+
   app.get('/api/public/shelves/:token/map/quotes', (c) => {
     const ownerId = db.findEnabledShare(c.req.param('token'))
     if (!ownerId) return c.json({ error: '分享已关闭' }, 404)
@@ -502,6 +509,11 @@ export function createApp(options: AppOptions) {
 
   app.get('/api/encounter', (c) => {
     return c.json(drawEncounters(db, c.get('userId'), c.req.query('count'), c.req.query('scope'), c.req.query('view'), c.req.query('exclude')))
+  })
+
+  app.post('/api/encounter', async (c) => {
+    const body = await readEncounterBody(c)
+    return c.json(drawEncounters(db, c.get('userId'), body.count, body.scope, body.view, body.exclude))
   })
 
   app.get('/api/books/:bookId/export', (c) => {
@@ -675,16 +687,33 @@ function readScope(kind: string | undefined, key: string | undefined): { kind: S
   return { kind, key: cleaned }
 }
 
+async function readEncounterBody(c: { req: { json: () => Promise<unknown> } }): Promise<{ count?: string; scope?: string; view?: string; exclude?: string[] }> {
+  const body = await c.req.json().catch(() => null)
+  if (!body || typeof body !== 'object') return {}
+  const record = body as { count?: unknown; scope?: unknown; view?: unknown; exclude?: unknown }
+  return {
+    count: typeof record.count === 'number' || typeof record.count === 'string' ? String(record.count) : undefined,
+    scope: typeof record.scope === 'string' ? record.scope : undefined,
+    view: typeof record.view === 'string' ? record.view : undefined,
+    exclude: Array.isArray(record.exclude) ? record.exclude.filter((id): id is string => typeof id === 'string') : undefined,
+  }
+}
+
+function excludeSet(raw: string | string[] | undefined): Set<string> {
+  const list = Array.isArray(raw) ? raw : (raw ?? '').split(',')
+  return new Set(list.map((id) => id.trim()).filter(Boolean).slice(0, 4000))
+}
+
 function encounterCount(raw: string | undefined): number {
   const count = Number(raw)
   if (!Number.isInteger(count)) return 3
   return Math.min(50, Math.max(1, count))
 }
 
-function drawEncounters(db: AppDatabase, userId: string, countRaw: string | undefined, scopeRaw: string | undefined, viewRaw: string | undefined, excludeRaw: string | undefined) {
+function drawEncounters(db: AppDatabase, userId: string, countRaw: string | undefined, scopeRaw: string | undefined, viewRaw: string | undefined, excludeRaw: string | string[] | undefined) {
   const chosen = readingScope(scopeRaw)
   const view = encounterView(viewRaw)
-  const exclude = new Set((excludeRaw ?? '').split(',').map((id) => id.trim()).filter(Boolean).slice(0, 50))
+  const exclude = excludeSet(excludeRaw)
   const count = encounterCount(countRaw)
   const now = new Date()
   const lines = db.listHighlightLines(userId).filter((line) => inReadingScope(line, chosen))

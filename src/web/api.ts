@@ -66,8 +66,7 @@ export type EncounterBoard =
   | { sections: EncounterSection[] }
 
 export function getEncounter(exclude: string[] = [], count = 3, scope: ReadingScope = 'all', view: EncounterView = 'flat') {
-  const params = encounterParams(exclude, count, scope, view)
-  return request<EncounterBoard>(`/api/encounter?${params}`)
+  return requestEncounter('/api/encounter', exclude, count, scope, view)
 }
 
 export type AuthMe = {
@@ -139,16 +138,20 @@ export function getPublicMapQuotes(token: string, category: string) {
 }
 
 export function getPublicEncounter(token: string, exclude: string[] = [], count = 3, scope: ReadingScope = 'all', view: EncounterView = 'flat') {
-  const params = encounterParams(exclude, count, scope, view)
-  return request<EncounterBoard>(`/api/public/shelves/${encodeURIComponent(token)}/encounter?${params}`)
+  return requestEncounter(`/api/public/shelves/${encodeURIComponent(token)}/encounter`, exclude, count, scope, view)
 }
 
-function encounterParams(exclude: string[], count: number, scope: ReadingScope, view: EncounterView) {
-  const params = new URLSearchParams({ count: String(count) })
-  if (scope !== 'all') params.set('scope', scope)
-  if (view !== 'flat') params.set('view', view)
-  if (exclude.length > 0) params.set('exclude', exclude.join(','))
-  return params
+function requestEncounter(path: string, exclude: string[], count: number, scope: ReadingScope, view: EncounterView) {
+  if (exclude.length === 0) {
+    const params = new URLSearchParams({ count: String(count) })
+    if (scope !== 'all') params.set('scope', scope)
+    if (view !== 'flat') params.set('view', view)
+    return request<EncounterBoard>(`${path}?${params}`)
+  }
+  return request<EncounterBoard>(path, {
+    method: 'POST',
+    body: JSON.stringify({ count, scope, view, exclude }),
+  })
 }
 
 export function getThemeScopes() {

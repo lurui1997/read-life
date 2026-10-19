@@ -246,6 +246,14 @@ describe('开屏一句', () => {
     expect(await ids('reading')).toEqual(['open-line'])
     expect(await ids('all')).toEqual(['done-line', 'new-line', 'open-line'])
     expect(await ids('nope')).toEqual(['done-line', 'new-line', 'open-line'])
+    const again = await app.request('/api/encounter', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ count: 1, scope: 'all', view: 'flat', exclude: ['done-line'] }),
+    })
+    const againIds = (await again.json() as { encounters: Array<{ bookmarkId: string }> }).encounters.map((item) => item.bookmarkId)
+    expect(againIds).toHaveLength(1)
+    expect(againIds[0]).not.toBe('done-line')
     db.close()
   })
 
