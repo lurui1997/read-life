@@ -78,8 +78,9 @@ export function pickEncounters(
   count = 3,
   random: () => number = Math.random,
   exclude: ReadonlySet<string> = new Set(),
+  forgotten = true,
 ): Encounter[] {
-  const eligible = candidates.filter((item) => isStandaloneSentence(item.markText) && isForgotten(item.readUpdateTime, now))
+  const eligible = candidates.filter((item) => isStandaloneSentence(item.markText) && (!forgotten || isForgotten(item.readUpdateTime, now)))
   const fresh = eligible.filter((item) => !exclude.has(item.bookmarkId))
   const pool = fresh.length >= count || fresh.length === eligible.length ? fresh : [...fresh, ...eligible.filter((item) => exclude.has(item.bookmarkId))]
   const bag = [...pool]
@@ -122,7 +123,7 @@ export function aggregateEncounters(
       label: key,
       bookCount: new Set(bucket.map((line) => line.bookId)).size,
       lineCount: bucket.length,
-      encounters: pickEncounters(bucket, now, count, random, exclude),
+      encounters: pickEncounters(bucket, now, count, random, exclude, false),
     }))
     .sort((left, right) => right.lineCount - left.lineCount || left.label.localeCompare(right.label, 'zh-CN'))
 }

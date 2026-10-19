@@ -202,6 +202,8 @@ describe('开屏一句', () => {
         markText: '他把窗打开，夜里的风就这样进来了。',
       }],
     })
+    const grouped = await (await app.request('/api/encounter?view=group&count=10')).json() as { sections: Array<{ key: string; encounters: Array<{ bookmarkId: string }> }> }
+    expect(grouped.sections.find((section) => section.key === '未分组')?.encounters.map((item) => item.bookmarkId).sort()).toEqual(['fresh', 'line'])
     db.close()
   })
 

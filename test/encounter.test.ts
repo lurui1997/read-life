@@ -104,7 +104,7 @@ describe('还能独立读的划线', () => {
       未分组: 2,
     })
     expect(groups.at(-1)?.key).toBe('未分组')
-    expect(groups.find((section) => section.key === '枕边')?.encounters.map((item) => item.bookmarkId)).toEqual(['a', 'b'])
+    expect(groups.find((section) => section.key === '枕边')?.encounters.map((item) => item.bookmarkId)).toEqual(['a', 'b', 'fresh'])
     expect(groups.find((section) => section.key === '未分组')?.bookCount).toBe(1)
   })
 })
