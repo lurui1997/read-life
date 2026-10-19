@@ -5,6 +5,7 @@ import {
   chaptersPrompt,
   chunkBook,
   parseChapters,
+  parseRewrittenChapter,
   type HandbookBookSource,
 } from '../src/shared/handbook'
 
@@ -55,6 +56,12 @@ describe('人生手册材料', () => {
     expect(chapters).toHaveLength(7)
     expect(chapters[0]?.bookIds).toEqual(['a'])
     expect(() => parseChapters(JSON.stringify({ chapters: [] }), new Set(['a']))).toThrow(/七章/)
+  })
+
+  it('从代码块里取出一章，拒绝语原样抛出', () => {
+    const text = '```json\n{"title":"章","body":"正文","bookIds":["a","missing"]}\n```'
+    expect(parseRewrittenChapter(text, new Set(['a']))).toEqual({ title: '章', body: '正文', bookIds: ['a'] })
+    expect(() => parseRewrittenChapter('只处理技术问题。', new Set())).toThrow('只处理技术问题。')
   })
 
   it('过长的划线按段切开，后一段不进入前一张卡片', () => {

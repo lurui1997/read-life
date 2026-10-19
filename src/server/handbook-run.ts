@@ -14,6 +14,12 @@ import {
 } from '../shared/handbook'
 import type { createHandbookStore } from './handbook-db'
 
+async function completeJson(model: HandbookModel, prompt: string): Promise<string> {
+  const first = await model.complete(prompt)
+  if (first.includes('{') && first.lastIndexOf('}') > first.indexOf('{')) return first
+  return model.complete(`上一次没有输出 JSON。不要拒绝，不要解释。只输出一个 JSON 对象。\n${prompt}`)
+}
+
 export type HandbookModel = {
   complete(prompt: string): Promise<string>
   draw(prompt: string, file: string): Promise<void>
@@ -44,13 +50,13 @@ export async function writeHandbookChapters(store: Store, model: HandbookModel, 
     const digests: string[] = []
     for (const [index, batch] of batches.entries()) {
       onProgress(index, batches.length + 1, `正在收第 ${index + 1} 组卡片`)
-      const digest = parseDigest(await model.complete(digestPrompt(batch)), allowed)
+      const digest = parseDigest(await completeJson(model, digestPrompt(batch)), allowed)
       digests.push(`id 包含 ${digest.bookIds.join('、') || '无'}\n${digest.summary}`)
     }
     source = digests.join('\n\n')
   }
   onProgress(batches.length, batches.length + 1, '正在写七章')
-  const chapters = parseChapters(await model.complete(chaptersPrompt(source)), allowed)
+  const chapters = parseChapters(await completeJson(model, chaptersPrompt(source)), allowed)
   store.createHandbook(chapters, userId)
   onProgress(batches.length + 1, batches.length + 1, '七章已经写好')
 }
@@ -63,7 +69,7 @@ export async function rewriteHandbookChapter(store: Store, model: HandbookModel,
   const cited = allCards.filter((card) => current.bookIds.includes(card.bookId))
   const cards = cited.length > 0 ? cited : allCards.slice(0, 8)
   const allowed = new Set(allCards.map((card) => card.bookId))
-  const draft = parseRewrittenChapter(await model.complete(rewriteChapterPrompt(position, current, cards)), allowed)
+  const draft = parseRewrittenChapter(await completeJson(model, rewriteChapterPrompt(position, current, cards)), allowed)
   store.replaceHandbookChapter(handbookId, position, draft, userId)
 }
 

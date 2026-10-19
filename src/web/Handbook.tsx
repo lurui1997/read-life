@@ -24,7 +24,13 @@ export function Handbook() {
   const [picked, setPicked] = useState<HandbookShelfBook[]>([])
   const [handbookId, setHandbookId] = useState<string | null>(null)
   const [pendingDelete, setPendingDelete] = useState<string | null>(null)
+  const [composing, setComposing] = useState(false)
   const wasRunning = useRef(false)
+  const searchInput = useRef<HTMLInputElement>(null)
+  const titleRef = useRef<HTMLTextAreaElement>(null)
+  const bodyRef = useRef<HTMLTextAreaElement>(null)
+  const focusSearch = useRef(false)
+  const seenHandbook = useRef<string | null>(null)
 
   useEffect(() => {
     let stop = false
@@ -77,6 +83,29 @@ export function Handbook() {
   const body = showing?.body ?? ''
   const running = view?.job.running === true
   const written = (view?.chapters ?? []).some((item) => item.title.trim() || item.body.trim())
+  const showComposer = composing || !written
+
+  useEffect(() => {
+    const id = view?.handbookId ?? null
+    if (seenHandbook.current === id) return
+    seenHandbook.current = id
+    setComposing(false)
+    setPendingDelete(null)
+  }, [view?.handbookId])
+
+  useEffect(() => {
+    if (!focusSearch.current || !showComposer) return
+    focusSearch.current = false
+    searchInput.current?.focus()
+  }, [showComposer])
+
+  useEffect(() => {
+    for (const element of [titleRef.current, bodyRef.current]) {
+      if (!element) continue
+      element.style.height = 'auto'
+      element.style.height = `${element.scrollHeight}px`
+    }
+  }, [title, body, position, view?.handbookId])
 
   function edit(next: { title?: string; body?: string }) {
     if (!chapter) return
@@ -148,147 +177,188 @@ export function Handbook() {
               }}
             >
               <span>{index + 1}</span>
-              {item?.title || '尚未写'}
+              <span className="handbook-toc-title">{item?.title || '尚未写'}</span>
             </button>
           )
         })}
       </nav>
       <div className="handbook-stage">
-        <div className="handbook-tools">
-        {view && view.history.length > 0 ? (
-          <div className="handbook-history">
-            <p>历史手册</p>
-            {view.history.map((item) => {
-              const label = `${formatHandbookTime(item.createdAt)} ${item.title || '未命名'}`
-              return (
-                <span key={item.id} className="handbook-chip" aria-current={item.id === view.handbookId ? 'true' : undefined}>
-                  {pendingDelete === item.id ? (
-                    <>
-                      <button type="button" disabled={running} onClick={() => void remove(item)}>确认删除</button>
-                      <button type="button" onClick={() => setPendingDelete(null)}>取消</button>
-                    </>
-                  ) : (
-                    <>
+        <div className="handbook-bar">
+          {view && view.history.length > 0 ? (
+            <div className="handbook-history">
+              <label>
+                <span className="sr-only">历史手册</span>
+                <select
+                  aria-label="历史手册"
+                  value={view.handbookId ?? ''}
+                  disabled={running}
+                  onChange={(event) => {
+                    const id = event.target.value
+                    setPendingDelete(null)
+                    void persist().then(() => setHandbookId(id))
+                  }}
+                >
+                  {view.history.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {formatHandbookTime(item.createdAt)} {item.title || '未命名'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          ) : <span />}
+          <div className="handbook-bar-actions">
+            {view?.handbookId ? (
+              pendingDelete === view.handbookId ? (
+                <span className="handbook-confirm">
+                  <button type="button" className="handbook-danger" disabled={running} onClick={() => {
+                    const item = view.history.find((entry) => entry.id === pendingDelete)
+                    if (item) void remove(item)
+                  }}>确认删除</button>
+                  <button type="button" onClick={() => setPendingDelete(null)}>取消</button>
+                </span>
+              ) : (
+                <button type="button" aria-label="删除这本手册" disabled={running} onClick={() => setPendingDelete(view.handbookId)}>
+                  删除
+                </button>
+              )
+            ) : null}
+            <button type="button" disabled={running || !chapter || !view?.handbookId} onClick={() => void run(() => rewriteHandbookChapter(position, view?.handbookId ?? ''))}>
+              重写这一章
+            </button>
+            <button type="button" disabled={running || !chapter || !view?.handbookId} onClick={() => void run(() => drawHandbookChapter(position, view?.handbookId ?? ''))}>
+              {chapter?.hasImage ? '重画' : '画这一章'}
+            </button>
+            {written ? (
+              <button
+                type="button"
+                aria-expanded={showComposer}
+                onClick={() => {
+                  if (showComposer) {
+                    setComposing(false)
+                    return
+                  }
+                  focusSearch.current = true
+                  setComposing(true)
+                }}
+              >
+                {showComposer ? '收起' : '按书重写'}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              disabled={running}
+              onClick={() => void run(async () => {
+                setPosition(1)
+                setDraft(null)
+                return createHandbook()
+              })}
+            >
+              新建手册
+            </button>
+          </div>
+        </div>
+        {showComposer ? (
+          <div className="handbook-composer">
+            <p>每次最多选 {HANDBOOK_BOOK_LIMIT} 本书，只读这几本。</p>
+            <div className="handbook-pick">
+              <input
+                ref={searchInput}
+                aria-label="选择书"
+                placeholder="搜索书名或作者…"
+                value={query}
+                disabled={running}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+              {picked.length > 0 ? (
+                <ul className="handbook-picked">
+                  {picked.map((book) => (
+                    <li key={book.bookId}>
+                      <span>《{book.title}》</span>
                       <button
                         type="button"
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => {
-                          setPendingDelete(null)
-                          void persist().then(() => setHandbookId(item.id))
-                        }}
+                        disabled={running}
+                        onClick={() => setPicked((current) => current.filter((item) => item.bookId !== book.bookId))}
                       >
-                        {label}
+                        移除
                       </button>
-                      <button type="button" aria-label="删除这本手册" disabled={running} onClick={() => setPendingDelete(item.id)}>
-                        删除
-                      </button>
-                    </>
-                  )}
-                </span>
-              )
-            })}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {matches.length > 0 ? (
+                <ul className="handbook-matches">
+                  {matches.map((book) => {
+                    const selected = picked.some((item) => item.bookId === book.bookId)
+                    const full = picked.length >= HANDBOOK_BOOK_LIMIT && !selected
+                    return (
+                      <li key={book.bookId}>
+                        <button
+                          type="button"
+                          disabled={running || selected || full}
+                          onClick={() => setPicked((current) => current.length >= HANDBOOK_BOOK_LIMIT ? current : [...current, book])}
+                        >
+                          《{book.title}》 {book.author}
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              ) : null}
+            </div>
+            <div className="handbook-actions">
+              <button type="button" className="handbook-commit" disabled={running || picked.length === 0} onClick={() => void run(() => writeHandbook(picked.map((book) => book.bookId), false))}>
+                {written ? '重写整本' : '写手册'}
+              </button>
+              <button type="button" disabled={running || picked.length === 0} onClick={() => void run(() => writeHandbook(picked.map((book) => book.bookId), true))}>
+                连卡片一起重做
+              </button>
+            </div>
           </div>
         ) : null}
-        <div className="handbook-pick">
-          <input
-            aria-label="选择书"
-            placeholder="搜索书名或作者…"
-            value={query}
-            disabled={running}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-          {picked.length > 0 ? (
-            <ul className="handbook-picked">
-              {picked.map((book) => (
-                <li key={book.bookId}>
-                  <span>《{book.title}》</span>
-                  <button
-                    type="button"
-                    disabled={running}
-                    onClick={() => setPicked((current) => current.filter((item) => item.bookId !== book.bookId))}
-                  >
-                    移除
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          {matches.length > 0 ? (
-            <ul className="handbook-matches">
-              {matches.map((book) => {
-                const selected = picked.some((item) => item.bookId === book.bookId)
-                const full = picked.length >= HANDBOOK_BOOK_LIMIT && !selected
-                return (
-                  <li key={book.bookId}>
-                    <button
-                      type="button"
-                      disabled={running || selected || full}
-                      onClick={() => setPicked((current) => current.length >= HANDBOOK_BOOK_LIMIT ? current : [...current, book])}
-                    >
-                      《{book.title}》 {book.author}
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          ) : null}
-        </div>
-        <div className="handbook-actions">
-          <button
-            type="button"
-            disabled={running}
-            onClick={() => void run(async () => {
-              setPosition(1)
-              setDraft(null)
-              return createHandbook()
-            })}
-          >
-            新建手册
-          </button>
-          <button type="button" disabled={running || picked.length === 0} onClick={() => void run(() => writeHandbook(picked.map((book) => book.bookId), false))}>
-            {written ? '重写整本' : '写手册'}
-          </button>
-          <button type="button" disabled={running || picked.length === 0} onClick={() => void run(() => writeHandbook(picked.map((book) => book.bookId), true))}>
-            连卡片一起重做
-          </button>
-          <button type="button" disabled={running || !chapter || !view?.handbookId} onClick={() => void run(() => rewriteHandbookChapter(position, view?.handbookId ?? ''))}>
-            重写这一章
-          </button>
-          <button type="button" disabled={running || !chapter || !view?.handbookId} onClick={() => void run(() => drawHandbookChapter(position, view?.handbookId ?? ''))}>
-            {chapter?.hasImage ? '重画' : '画这一章'}
-          </button>
-        </div>
         {view?.job.running ? <p className="handbook-progress">{view.job.message} {view.job.total > 0 ? `${view.job.done}/${view.job.total}` : ''}</p> : null}
         {error ? <p className="error">{error}</p> : null}
         {view && !view.modelReady ? <p className="handbook-note">生成需要本机已登录的 Cursor CLI（agent）。已经写好的章节仍可以阅读和修改。</p> : null}
-        </div>
         {chapter ? (
-          <>
+          <div className="handbook-reading">
             {chapter.hasImage ? (
               <img
                 className="handbook-plate"
                 alt=""
                 src={`/api/handbook/chapters/${chapter.position}/image?handbook=${encodeURIComponent(view?.handbookId ?? '')}&v=${imageTick}`}
               />
-            ) : (
-              <p className="handbook-plate-empty">这一章还没有图</p>
-            )}
-            <input
+            ) : null}
+            <textarea
+              ref={titleRef}
               className="handbook-title"
               aria-label="章名"
+              rows={1}
               placeholder="章名"
               value={title}
               disabled={running}
-              onChange={(event) => edit({ title: event.target.value })}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') event.preventDefault()
+              }}
+              onChange={(event) => {
+                const next = event.target.value.replace(/\n/g, '')
+                edit({ title: next })
+                event.target.style.height = 'auto'
+                event.target.style.height = `${event.target.scrollHeight}px`
+              }}
               onBlur={() => void persist()}
             />
             <textarea
+              ref={bodyRef}
               className="handbook-body"
               aria-label="正文"
               placeholder="这一章写什么"
               value={body}
               disabled={running}
-              onChange={(event) => edit({ body: event.target.value })}
+              onChange={(event) => {
+                edit({ body: event.target.value })
+                event.target.style.height = 'auto'
+                event.target.style.height = `${event.target.scrollHeight}px`
+              }}
               onBlur={() => void persist()}
             />
             {chapter.books.length > 0 ? (
@@ -301,7 +371,7 @@ export function Handbook() {
                 ))}
               </ul>
             ) : null}
-          </>
+          </div>
         ) : (
           <div className="handbook-empty">
             <h1>人生手册</h1>

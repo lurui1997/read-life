@@ -48,7 +48,7 @@ async function ask(prompt: string, cwd: string, write: boolean): Promise<string>
   const args = ['-p', '--output-format', 'text', '--model', modelId, '--trust']
   const message = write
     ? prompt
-    : `不要使用工具，不要运行命令，不要写代码，不要检查字数。直接回复。\n${prompt}`
+    : `这是一次程序调用。不要使用工具，不要运行命令，不要解释。按下面要求的格式直接输出。\n${prompt}`
   if (write) args.push('--force', '--sandbox', 'disabled')
   else args.push('--mode', 'ask')
   args.push(message)

@@ -168,10 +168,13 @@ export function batchesOf<T extends { card: string }>(cards: T[], budget = CHAPT
   return batches
 }
 
+const jsonCall = '这是程序在读取函数返回值。只输出一个 JSON 对象，不要解释，不要拒绝。'
+
 export function digestPrompt(cards: HandbookCard[]): string {
   return [
-    '把下面几张卡片收成一段不超过 220 字的摘要，供后面写人生手册使用。',
-    '只回复 JSON：{"summary":"","bookIds":[]}',
+    jsonCall,
+    '把下面几张卡片收成一段不超过 220 字的摘要。',
+    '格式：{"summary":"","bookIds":[]}',
     'bookIds 只能从下面给出的 id 里选。',
     ...cards.map((card) => `id=${card.bookId} 《${card.title}》 ${card.author}\n${card.card}`),
   ].join('\n')
@@ -179,9 +182,10 @@ export function digestPrompt(cards: HandbookCard[]): string {
 
 export function chaptersPrompt(source: string): string {
   return [
-    '根据下面的材料，写一本七章的人生手册。写的是这位读者，书和划线只是证据。',
+    jsonCall,
+    '根据下面的材料填写 7 章。写的是这位读者，书和划线只是证据。',
     '每章正文 200 到 400 字。bookIds 只能从材料里出现的 id 中选。',
-    '只回复 JSON：{"chapters":[{"title":"","body":"","bookIds":[]}]}',
+    '格式：{"chapters":[{"title":"","body":"","bookIds":[]}]}',
     '必须正好 7 章。',
     source,
   ].join('\n')
@@ -193,10 +197,11 @@ export function cardsSource(cards: HandbookCard[]): string {
 
 export function rewriteChapterPrompt(position: number, current: HandbookChapterDraft, cards: HandbookCard[]): string {
   return [
-    `重写人生手册的第 ${position} 章。可以改章名。正文 200 到 400 字。`,
-    '只回复 JSON：{"title":"","body":"","bookIds":[]}',
+    jsonCall,
+    `填写第 ${position} 章。可以换标题。正文 200 到 400 字。`,
+    '格式：{"title":"","body":"","bookIds":[]}',
     'bookIds 只能从下面卡片的 id 里选。',
-    `当前章名：${current.title}`,
+    `当前标题：${current.title}`,
     `当前正文：${current.body}`,
     cardsSource(cards),
   ].join('\n')
@@ -204,9 +209,9 @@ export function rewriteChapterPrompt(position: number, current: HandbookChapterD
 
 export function drawPrompt(title: string, body: string): string {
   return [
-    '为一本个人人生手册画一幅图版。平静、具体、没有字。',
+    '画一幅 PNG 插画。平静、具体、画面里没有字。',
     '不要画成书封拼贴。',
-    `章名：${title}`,
+    `标题：${title}`,
     `正文：${body}`,
   ].join('\n')
 }
@@ -257,8 +262,16 @@ function knownIds(value: unknown, allowed: Set<string>): string[] {
 function readJson(text: string): unknown {
   const start = text.indexOf('{')
   const end = text.lastIndexOf('}')
-  if (start < 0 || end <= start) throw new Error('模型没有返回 JSON')
-  return JSON.parse(text.slice(start, end + 1)) as unknown
+  if (start < 0 || end <= start) {
+    const line = text.trim().split('\n').map((item) => item.trim()).find(Boolean) ?? ''
+    if (line && line.length <= 80) throw new Error(line)
+    throw new Error('模型没有返回 JSON')
+  }
+  try {
+    return JSON.parse(text.slice(start, end + 1)) as unknown
+  } catch {
+    throw new Error('模型没有返回 JSON')
+  }
 }
 
 function splitText(text: string, budget: number): string[] {
