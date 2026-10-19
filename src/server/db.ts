@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import Database from 'better-sqlite3'
-import { isStandaloneSentence, type EncounterCandidate } from '../shared/encounter'
+import { isStandaloneSentence, type HighlightLine } from '../shared/encounter'
 import type { MapQuote, MapSourceBook } from '../shared/reading-map'
 import type { BookDetail, BookSummary, Highlight, SyncRecord } from '../shared/types'
 import { normalizeProgress } from '../shared/progress'
@@ -92,7 +92,7 @@ export type AppDatabase = ReturnType<typeof createHandbookStore> & {
     userId?: string,
   ): void
   getBookDetail(bookId: string, userId?: string): BookDetail | null
-  listHighlightLines(userId?: string): EncounterCandidate[]
+  listHighlightLines(userId?: string): HighlightLine[]
   listMapBooks(userId?: string): MapSourceBook[]
   listMapQuotes(category: string, userId?: string): MapQuote[]
   upsertShelfBook(book: {
@@ -611,18 +611,34 @@ export function openDatabase(filePath: string, secret: string | null = null): Ap
         chapterUid: number
         markText: string
         readUpdateTime: number | null
+        finishReading: number
+        progress: number | null
+        category: string | null
       }>(`
         SELECT h.bookmark_id AS bookmarkId,
                h.book_id AS bookId,
                b.title AS title,
                h.chapter_uid AS chapterUid,
                h.mark_text AS markText,
-               b.read_update_time AS readUpdateTime
+               b.read_update_time AS readUpdateTime,
+               b.finish_reading AS finishReading,
+               b.progress AS progress,
+               b.category AS category
         FROM highlights h
         JOIN books b ON b.user_id = h.user_id AND b.book_id = h.book_id
-        WHERE h.user_id = ? AND b.on_shelf = 1 AND length(h.mark_text) BETWEEN 12 AND 600
+        WHERE h.user_id = ? AND b.on_shelf = 1
       `).all(uid(userId))
-      return rows
+      return rows.map((row) => ({
+        bookmarkId: row.bookmarkId,
+        bookId: row.bookId,
+        title: row.title,
+        chapterUid: row.chapterUid,
+        markText: row.markText,
+        readUpdateTime: row.readUpdateTime,
+        finishReading: row.finishReading === 1,
+        progress: row.progress,
+        category: row.category,
+      }))
     },
     upsertShelfBook(book, userId?: string) {
       upsertBook.run({

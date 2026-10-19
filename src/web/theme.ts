@@ -11,11 +11,11 @@ export const themeOptions: Array<{ id: ThemePreference; label: string }> = [
   { id: 'system', label: '跟随系统' },
 ]
 
-const styleMeta: Record<PageStyle, { scheme: 'light' | 'dark'; color: string }> = {
-  paper: { scheme: 'light', color: '#f3ecdf' },
-  bamboo: { scheme: 'light', color: '#d5e3d4' },
-  frost: { scheme: 'light', color: '#e6eef1' },
-  night: { scheme: 'dark', color: '#12100e' },
+const styleMeta: Record<PageStyle, { scheme: 'light' | 'dark'; color: string; accent: string }> = {
+  paper: { scheme: 'light', color: '#f3ecdf', accent: '#2d5a47' },
+  bamboo: { scheme: 'light', color: '#d5e3d4', accent: '#1f6b45' },
+  frost: { scheme: 'light', color: '#e6eef1', accent: '#2a5f78' },
+  night: { scheme: 'dark', color: '#12100e', accent: '#9dccb6' },
 }
 
 const aliases: Record<string, ThemePreference> = {
@@ -36,6 +36,12 @@ export function normalizeThemePreference(value: string | null): ThemePreference 
 export function resolveTheme(preference: ThemePreference, systemDark: boolean): PageStyle {
   if (preference === 'system') return systemDark ? 'night' : 'paper'
   return preference
+}
+
+export function themeMark(preference: ThemePreference, systemDark: boolean): { label: string; color: string } {
+  const style = resolveTheme(preference, systemDark)
+  const label = themeOptions.find((item) => item.id === preference)?.label ?? '跟随系统'
+  return { label, color: styleMeta[style].accent }
 }
 
 export function readThemePreference(): ThemePreference {

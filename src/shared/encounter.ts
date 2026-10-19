@@ -1,3 +1,5 @@
+import { topCategory } from './themes'
+
 export type EncounterCandidate = {
   bookmarkId: string
   bookId: string
@@ -13,6 +15,41 @@ export type Encounter = {
   title: string
   chapterUid: number
   markText: string
+}
+
+export type ReadingScope = 'all' | 'finished' | 'reading'
+
+export type HighlightLine = EncounterCandidate & {
+  finishReading: boolean
+  progress: number | null
+  category: string | null
+}
+
+export type EncounterView = 'flat' | 'group' | 'category'
+
+export type EncounterSection = {
+  key: string
+  label: string
+  bookCount: number
+  lineCount: number
+  encounters: Encounter[]
+}
+
+export function encounterView(raw: string | null | undefined): EncounterView {
+  if (raw === 'group' || raw === 'category') return raw
+  return 'flat'
+}
+
+export function readingScope(raw: string | null | undefined): ReadingScope {
+  if (raw === 'finished' || raw === 'reading') return raw
+  return 'all'
+}
+
+export function inReadingScope(book: { finishReading: boolean; progress: number | null }, scope: ReadingScope): boolean {
+  if (scope === 'all') return true
+  const finished = book.finishReading || (book.progress ?? 0) >= 100
+  if (scope === 'finished') return finished
+  return !finished && (book.progress ?? 0) > 0
 }
 
 const FORGOTTEN_SECONDS = 90 * 24 * 60 * 60
@@ -60,6 +97,34 @@ export function pickEncounters(
     })
   }
   return chosen
+}
+
+export function aggregateEncounters(
+  lines: Array<HighlightLine & { groupNames: string[] }>,
+  view: Exclude<EncounterView, 'flat'>,
+  now: Date,
+  count = 3,
+  random: () => number = Math.random,
+  exclude: ReadonlySet<string> = new Set(),
+): EncounterSection[] {
+  const buckets = new Map<string, Array<HighlightLine & { groupNames: string[] }>>()
+  for (const line of lines) {
+    const keys = view === 'category' ? [topCategory(line.category)] : line.groupNames.length > 0 ? line.groupNames : ['未分组']
+    for (const key of keys) {
+      const bucket = buckets.get(key) ?? []
+      bucket.push(line)
+      buckets.set(key, bucket)
+    }
+  }
+  return [...buckets.entries()]
+    .map(([key, bucket]) => ({
+      key,
+      label: key,
+      bookCount: new Set(bucket.map((line) => line.bookId)).size,
+      lineCount: bucket.length,
+      encounters: pickEncounters(bucket, now, count, random, exclude),
+    }))
+    .sort((left, right) => right.lineCount - left.lineCount || left.label.localeCompare(right.label, 'zh-CN'))
 }
 
 export function encounterHref(bookId: string, bookmarkId: string): string {

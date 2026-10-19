@@ -12,7 +12,7 @@ import { runSync } from './sync'
 import { WereadError, type WereadClient } from './weread'
 import { createWereadLogin } from './weread-login'
 import { wereadReaderUrl } from './weread-url'
-import { pickEncounters } from '../shared/encounter'
+import { aggregateEncounters, encounterView, inReadingScope, pickEncounters, readingScope } from '../shared/encounter'
 import { HANDBOOK_BOOK_LIMIT, handbookBookIds } from '../shared/handbook'
 import { RECENT_SCOPE_KEY, type ScopeKind, type ThemeWrite } from '../shared/themes'
 import { contentDisposition, exportFilename, highlightsToCsv, highlightsToMarkdown } from '../shared/export-highlights'
@@ -393,11 +393,7 @@ export function createApp(options: AppOptions) {
   app.get('/api/public/shelves/:token/encounter', (c) => {
     const ownerId = db.findEnabledShare(c.req.param('token'))
     if (!ownerId) return c.json({ error: '分享已关闭' }, 404)
-    const exclude = new Set(
-      (c.req.query('exclude') ?? '').split(',').map((id) => id.trim()).filter(Boolean).slice(0, 50),
-    )
-    const encounters = pickEncounters(db.listHighlightLines(ownerId), new Date(), encounterCount(c.req.query('count')), Math.random, exclude)
-    return c.json({ encounters })
+    return c.json(drawEncounters(db, ownerId, c.req.query('count'), c.req.query('scope'), c.req.query('view'), c.req.query('exclude')))
   })
 
   app.get('/api/public/shelves/:token/map/quotes', (c) => {
@@ -505,11 +501,7 @@ export function createApp(options: AppOptions) {
   })
 
   app.get('/api/encounter', (c) => {
-    const exclude = new Set(
-      (c.req.query('exclude') ?? '').split(',').map((id) => id.trim()).filter(Boolean).slice(0, 50),
-    )
-    const encounters = pickEncounters(db.listHighlightLines(c.get('userId')), new Date(), encounterCount(c.req.query('count')), Math.random, exclude)
-    return c.json({ encounters })
+    return c.json(drawEncounters(db, c.get('userId'), c.req.query('count'), c.req.query('scope'), c.req.query('view'), c.req.query('exclude')))
   })
 
   app.get('/api/books/:bookId/export', (c) => {
@@ -687,6 +679,31 @@ function encounterCount(raw: string | undefined): number {
   const count = Number(raw)
   if (!Number.isInteger(count)) return 3
   return Math.min(50, Math.max(1, count))
+}
+
+function drawEncounters(db: AppDatabase, userId: string, countRaw: string | undefined, scopeRaw: string | undefined, viewRaw: string | undefined, excludeRaw: string | undefined) {
+  const chosen = readingScope(scopeRaw)
+  const view = encounterView(viewRaw)
+  const exclude = new Set((excludeRaw ?? '').split(',').map((id) => id.trim()).filter(Boolean).slice(0, 50))
+  const count = encounterCount(countRaw)
+  const now = new Date()
+  const lines = db.listHighlightLines(userId).filter((line) => inReadingScope(line, chosen))
+  if (view === 'flat') return { encounters: pickEncounters(lines, now, count, Math.random, exclude) }
+  const names = groupNamesByBook(db.listArchiveGroups(userId))
+  const sourced = lines.map((line) => ({ ...line, groupNames: names.get(line.bookId) ?? [] }))
+  return { sections: aggregateEncounters(sourced, view, now, count, Math.random, exclude) }
+}
+
+function groupNamesByBook(groups: Array<{ name: string; bookIds: string[] }>): Map<string, string[]> {
+  const names = new Map<string, string[]>()
+  for (const group of groups) {
+    for (const bookId of group.bookIds) {
+      const list = names.get(bookId) ?? []
+      list.push(group.name)
+      names.set(bookId, list)
+    }
+  }
+  return names
 }
 
 function themeError(c: { json: (body: unknown, status?: number) => Response }, result: ThemeWrite) {

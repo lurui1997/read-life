@@ -1,9 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { getEncounter, getPublicEncounter } from './api'
-import { encounterHref, sharedBookHref, type Encounter } from '../shared/encounter'
+import { encounterHref, encounterView, readingScope, sharedBookHref, type Encounter, type EncounterSection, type EncounterView, type ReadingScope } from '../shared/encounter'
 
 const countKey = 'read-life.encounter-count'
+const scopeKey = 'read-life.encounter-scope'
+const viewKey = 'read-life.encounter-view'
+const scopes: Array<{ id: ReadingScope; label: string }> = [
+  { id: 'all', label: '所有书籍' },
+  { id: 'finished', label: '已读完' },
+  { id: 'reading', label: '进行中' },
+]
+const views: Array<{ id: EncounterView; label: string }> = [
+  { id: 'flat', label: '随机' },
+  { id: 'group', label: '分组' },
+  { id: 'category', label: '分类' },
+]
 const countPresets = [3, 5, 10, 20]
 const minCount = 1
 const maxCount = 50
@@ -16,7 +28,11 @@ export function EncounterPage({
   shareToken?: string
 }) {
   const [encounters, setEncounters] = useState<Encounter[] | null>(null)
+  const [sections, setSections] = useState<EncounterSection[] | null>(null)
+  const [open, setOpen] = useState<string[]>([])
   const [count, setCount] = useState(readCount)
+  const [scope, setScope] = useState(readScope)
+  const [view, setView] = useState(readView)
   const [custom, setCustom] = useState(() => !countPresets.includes(readCount()))
   const [draft, setDraft] = useState(() => String(readCount()))
   const [error, setError] = useState('')
@@ -24,14 +40,25 @@ export function EncounterPage({
   const customInput = useRef<HTMLInputElement>(null)
   const focusCustom = useRef(false)
 
-  const load = useCallback((exclude: string[], nextCount: number, scroll = false) => {
+  const load = useCallback((exclude: string[], nextCount: number, nextScope: ReadingScope, nextView: EncounterView, scroll = false) => {
     const mine = ++ticket.current
     setError('')
-    const request = shareToken ? getPublicEncounter(shareToken, exclude, nextCount) : getEncounter(exclude, nextCount)
+    const request = shareToken
+      ? getPublicEncounter(shareToken, exclude, nextCount, nextScope, nextView)
+      : getEncounter(exclude, nextCount, nextScope, nextView)
     void request
       .then((next) => {
         if (mine !== ticket.current) return
-        flushSync(() => setEncounters(next.encounters))
+        flushSync(() => {
+          if ('sections' in next) {
+            setEncounters(null)
+            setSections(next.sections)
+            setOpen((current) => current.filter((key) => next.sections.some((section) => section.key === key)))
+          } else {
+            setSections(null)
+            setEncounters(next.encounters)
+          }
+        })
         if (scroll) window.scrollTo({ top: 0, behavior: 'auto' })
       })
       .catch((reason: Error) => {
@@ -40,8 +67,10 @@ export function EncounterPage({
   }, [shareToken])
 
   useEffect(() => {
-    load([], count)
-  }, [libraryVersion, count, load])
+    setEncounters(null)
+    setSections(null)
+    load([], count, scope, view)
+  }, [libraryVersion, count, scope, view, load])
 
   useEffect(() => {
     setDraft(String(count))
@@ -55,8 +84,9 @@ export function EncounterPage({
   }, [custom])
 
   const refresh = useCallback(() => {
-    load((encounters ?? []).map((item) => item.bookmarkId), count, true)
-  }, [count, encounters, load])
+    const shown = encounters ?? sections?.flatMap((section) => section.encounters) ?? []
+    load(shown.map((item) => item.bookmarkId), count, scope, view, true)
+  }, [count, encounters, load, scope, sections, view])
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -100,30 +130,68 @@ export function EncounterPage({
     changeCount(next)
   }
 
+  function chooseScope(next: ReadingScope) {
+    setScope(next)
+    try {
+      localStorage.setItem(scopeKey, next)
+    } catch {
+      // 写不进时，这次页面里的范围仍然有效
+    }
+  }
+
+  function chooseView(next: EncounterView) {
+    setView(next)
+    try {
+      localStorage.setItem(viewKey, next)
+    } catch {
+      // 写不进时，这次页面里的看法仍然有效
+    }
+  }
+
+  function toggleSection(key: string) {
+    setOpen((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])
+  }
+
+  const waiting = encounters == null && sections == null && !error
+  const flatEmpty = view === 'flat' && encounters?.length === 0
+  const groupedEmpty = view !== 'flat' && sections?.length === 0
+
   return (
     <section className="encounter-page" aria-label="随机划线">
+      <div className="encounter-scopes" role="group" aria-label="划线范围">
+        {scopes.map((item) => (
+          <button key={item.id} type="button" aria-pressed={scope === item.id} onClick={() => chooseScope(item.id)}>
+            {item.label}
+          </button>
+        ))}
+      </div>
+      <div className="encounter-scopes encounter-facets" role="group" aria-label="聚合方式">
+        {views.map((item) => (
+          <button key={item.id} type="button" aria-pressed={view === item.id} onClick={() => chooseView(item.id)}>
+            {item.label}
+          </button>
+        ))}
+      </div>
       {error ? <p className="error">{error}</p> : null}
-      {encounters == null && !error ? <p className="state-message">正在抽出…</p> : null}
-      {encounters?.length === 0 ? <p className="state-message">还没有可以单独成句的划线。</p> : null}
-      {encounters && encounters.length > 0 ? (
-        <ol className="encounter-list">
-          {encounters.map((encounter) => (
-            <li key={encounter.bookmarkId}>
-              <a
-                className="encounter"
-                href={shareToken ? sharedBookHref(shareToken, encounter.bookId, encounter.bookmarkId) : encounterHref(encounter.bookId, encounter.bookmarkId)}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <p className="encounter-line">{encounter.markText}</p>
-                <span className="encounter-meta">
-                  <span className="encounter-title">{encounter.title || '未命名'}</span>
-                  <span className="encounter-go">去这一章</span>
-                </span>
-              </a>
-            </li>
-          ))}
-        </ol>
+      {waiting ? <p className="state-message">正在抽出…</p> : null}
+      {flatEmpty || groupedEmpty ? <p className="state-message">{emptyCopy(scope, view)}</p> : null}
+      {view === 'flat' && encounters && encounters.length > 0 ? <EncounterList lines={encounters} shareToken={shareToken} /> : null}
+      {view !== 'flat' && sections && sections.length > 0 ? (
+        <div className="encounter-sections">
+          {sections.map((section) => {
+            const expanded = open.includes(section.key)
+            return (
+              <section key={section.key} className="encounter-section">
+                <button type="button" className={expanded ? 'encounter-section-head open' : 'encounter-section-head'} aria-expanded={expanded} onClick={() => toggleSection(section.key)}>
+                  <span>{section.label}</span>
+                  <span className="section-count">{section.bookCount} 本 · {section.lineCount} 条</span>
+                </button>
+                {expanded && section.encounters.length > 0 ? <EncounterList lines={section.encounters} shareToken={shareToken} /> : null}
+                {expanded && section.encounters.length === 0 ? <p className="state-message">这里还没有可以单独成句的划线。</p> : null}
+              </section>
+            )
+          })}
+        </div>
       ) : null}
       <div className="encounter-tools">
         <button type="button" className="encounter-refresh" aria-keyshortcuts="r" onClick={refresh}>
@@ -158,6 +226,53 @@ export function EncounterPage({
       </div>
     </section>
   )
+}
+
+function EncounterList({ lines, shareToken }: { lines: Encounter[]; shareToken?: string }) {
+  return (
+    <ol className="encounter-list">
+      {lines.map((encounter) => (
+        <li key={encounter.bookmarkId}>
+          <a
+            className="encounter"
+            href={shareToken ? sharedBookHref(shareToken, encounter.bookId, encounter.bookmarkId) : encounterHref(encounter.bookId, encounter.bookmarkId)}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <p className="encounter-line">{encounter.markText}</p>
+            <span className="encounter-meta">
+              <span className="encounter-title">{encounter.title || '未命名'}</span>
+              <span className="encounter-go">去这一章</span>
+            </span>
+          </a>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+function readView(): EncounterView {
+  try {
+    return encounterView(localStorage.getItem(viewKey))
+  } catch {
+    return 'flat'
+  }
+}
+
+function readScope(): ReadingScope {
+  try {
+    return readingScope(localStorage.getItem(scopeKey))
+  } catch {
+    return 'all'
+  }
+}
+
+function emptyCopy(scope: ReadingScope, view: EncounterView): string {
+  const where = scope === 'finished' ? '已读完的书里，' : scope === 'reading' ? '进行中的书里，' : ''
+  if (view === 'group') return `${where}还没有可以按分组单独成句的划线。`
+  if (view === 'category') return `${where}还没有可以按分类单独成句的划线。`
+  if (where) return `${where}还没有可以单独成句的划线。`
+  return '还没有可以单独成句的划线。'
 }
 
 function readCount(): number {

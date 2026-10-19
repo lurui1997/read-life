@@ -12,7 +12,7 @@ import { SurpriseToolbar } from './SurpriseToolbar'
 import { applyRandomOrder, buildShelfSections, filterShelfSections, type ShelfMode } from './shelf-views'
 import { bookmarkIdFromHash } from '../shared/encounter'
 import type { BookDetail, BooksResponse, SyncStatus } from '../shared/types'
-import { applyTheme, readThemePreference, themeOptions, writeThemePreference, type ThemePreference } from './theme'
+import { applyTheme, readThemePreference, systemIsDark, themeMark, themeOptions, writeThemePreference, type ThemePreference } from './theme'
 
 type Route =
   | { name: 'shelf' }
@@ -52,6 +52,16 @@ function readRoute(): Route {
   return { name: 'shelf' }
 }
 
+function ThemeNav({ preference, systemDark, onCycle }: { preference: ThemePreference; systemDark: boolean; onCycle: () => void }) {
+  const mark = themeMark(preference, systemDark)
+  return (
+    <button type="button" className="nav-text theme-toggle" aria-label={`主题 ${mark.label}`} onClick={onCycle}>
+      <span className="theme-swatch" style={{ background: mark.color }} aria-hidden="true" />
+      {mark.label}
+    </button>
+  )
+}
+
 export function App() {
   const [route, setRoute] = useState<Route>(readRoute)
   const [sync, setSync] = useState<SyncStatus | null>(null)
@@ -63,6 +73,7 @@ export function App() {
   const [me, setMe] = useState<AuthMe | null>(null)
   const [liveTick, setLiveTick] = useState(0)
   const [theme, setTheme] = useState<ThemePreference>(() => readThemePreference())
+  const [systemDark, setSystemDark] = useState(systemIsDark)
 
   useEffect(() => {
     void getMe().then((next) => {
@@ -99,6 +110,7 @@ export function App() {
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)')
     const onChange = () => {
+      setSystemDark(media.matches)
       if (readThemePreference() === 'system') applyTheme('system')
     }
     media.addEventListener('change', onChange)
@@ -166,38 +178,38 @@ export function App() {
           折角
         </a>
         <nav className={minimalNav ? 'nav nav-minimal' : 'nav'}>
-          <button
-            type="button"
-            className="nav-text theme-toggle"
-            onClick={() => {
-              const order = themeOptions.map((item) => item.id)
-              const next = order[(order.indexOf(theme) + 1) % order.length] ?? 'system'
-              setTheme(next)
-              writeThemePreference(next)
-            }}
-          >
-            {themeOptions.find((item) => item.id === theme)?.label ?? '跟随系统'}
-          </button>
           {route.name === 'share' ? (
             <>
               <a className="nav-text" href={`${shareHome}/encounter`} aria-current={route.page === 'encounter' ? 'page' : undefined} onClick={(event) => { event.preventDefault(); go(`${shareHome}/encounter`) }}>划线</a>
               <a className="nav-text nav-map" href={`${shareHome}/map`} onClick={(event) => { event.preventDefault(); go(`${shareHome}/map`) }}>地图</a>
             </>
-          ) : me?.authRequired && !me.user ? (
+          ) : me?.authRequired && !me.user ? null : (
+            <>
+              <a className="nav-text" href="/encounter" aria-current={route.name === 'encounter' ? 'page' : undefined} onClick={(event) => { event.preventDefault(); go('/encounter') }}>划线</a>
+              <a className="nav-text" href="/handbook" onClick={(event) => { event.preventDefault(); go('/handbook') }}>手册</a>
+              <a className="nav-text nav-map" href="/map" onClick={(event) => { event.preventDefault(); go('/map') }}>地图</a>
+            </>
+          )}
+          <ThemeNav
+            preference={theme}
+            systemDark={systemDark}
+            onCycle={() => {
+              const order = themeOptions.map((item) => item.id)
+              const next = order[(order.indexOf(theme) + 1) % order.length] ?? 'system'
+              setTheme(next)
+              writeThemePreference(next)
+            }}
+          />
+          {route.name === 'share' ? null : me?.authRequired && !me.user ? (
             <a className="nav-text" href="/login" onClick={(event) => { event.preventDefault(); go('/login') }}>登录</a>
           ) : (
-            <>
-              <a className="nav-text" href="/handbook" onClick={(event) => { event.preventDefault(); go('/handbook') }}>手册</a>
-              <a className="nav-text" href="/encounter" aria-current={route.name === 'encounter' ? 'page' : undefined} onClick={(event) => { event.preventDefault(); go('/encounter') }}>划线</a>
-              <a className="nav-text nav-map" href="/map" onClick={(event) => { event.preventDefault(); go('/map') }}>地图</a>
-              <a
-                className={minimalNav ? 'nav-text' : undefined}
-                href="/settings"
-                onClick={(event) => { event.preventDefault(); go('/settings') }}
-              >
-                设置
-              </a>
-            </>
+            <a
+              className={minimalNav ? 'nav-text' : undefined}
+              href="/settings"
+              onClick={(event) => { event.preventDefault(); go('/settings') }}
+            >
+              设置
+            </a>
           )}
         </nav>
       </header>

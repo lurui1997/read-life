@@ -280,6 +280,20 @@ a.nav-text {
   cursor: default;
 }
 
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.theme-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 16%, transparent);
+  flex: none;
+}
+
 .nav button, .nav a, .primary {
   border: 1px solid var(--ink);
   background: transparent;
@@ -943,6 +957,62 @@ button:disabled {
   max-width: none;
   min-width: 0;
   animation: page-in 0.5s var(--ease);
+}
+
+.encounter-scopes {
+  display: flex;
+  gap: 18px;
+  margin: 0 0 18px;
+}
+
+.encounter-scopes button {
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  padding: 0 0 6px;
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.encounter-scopes button:hover {
+  color: var(--ink);
+}
+
+.encounter-scopes button[aria-pressed='true'] {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+
+.encounter-facets {
+  margin-top: -8px;
+}
+
+.encounter-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  margin: 0;
+  padding: 14px 0;
+  border: 0;
+  border-top: 1px solid var(--surface-border);
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 1rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.encounter-section-head.open {
+  color: var(--ink);
+}
+
+.encounter-section .encounter-list {
+  padding-bottom: 8px;
 }
 
 .encounter-list {
@@ -2318,6 +2388,8 @@ button:disabled {
     font-size: 1.2rem;
   }
 
+  .encounter-scopes button,
+  .encounter-section-head,
   .encounter-refresh,
   .encounter-count select,
   .encounter-count input {

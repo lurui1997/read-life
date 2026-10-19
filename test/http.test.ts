@@ -220,6 +220,68 @@ describe('开屏一句', () => {
     db.close()
   })
 
+  it('可以只看已读完或进行中的书', async () => {
+    const db = tempDb()
+    const ancient = Math.floor(Date.now() / 1000) - 400 * 86400
+    const line = '他把窗打开，夜里的风就这样进来了。'
+    db.upsertShelfBook(shelfBook({ bookId: 'done', title: '读完', readUpdateTime: ancient, finishReading: true }))
+    db.upsertShelfBook(shelfBook({ bookId: 'open', title: '在读', readUpdateTime: ancient }))
+    db.upsertShelfBook(shelfBook({ bookId: 'new', title: '未读', readUpdateTime: ancient }))
+    db.setProgress('open', 40, 120, { kind: 'time', time: ancient })
+    db.replaceHighlights('done', 1, [{ chapterUid: 1, chapterIdx: 1, title: '章' }], [
+      { bookmarkId: 'done-line', chapterUid: 1, markText: line, range: null },
+    ])
+    db.replaceHighlights('open', 1, [{ chapterUid: 1, chapterIdx: 1, title: '章' }], [
+      { bookmarkId: 'open-line', chapterUid: 1, markText: line, range: null },
+    ])
+    db.replaceHighlights('new', 1, [{ chapterUid: 1, chapterIdx: 1, title: '章' }], [
+      { bookmarkId: 'new-line', chapterUid: 1, markText: line, range: null },
+    ])
+    const app = createApp({ db, createClient: () => fakeWeread({}) })
+    const ids = async (scope: string) => {
+      const body = await (await app.request(`/api/encounter?count=10&scope=${scope}`)).json() as { encounters: Array<{ bookmarkId: string }> }
+      return body.encounters.map((item) => item.bookmarkId).sort()
+    }
+    expect(await ids('finished')).toEqual(['done-line'])
+    expect(await ids('reading')).toEqual(['open-line'])
+    expect(await ids('all')).toEqual(['done-line', 'new-line', 'open-line'])
+    expect(await ids('nope')).toEqual(['done-line', 'new-line', 'open-line'])
+    db.close()
+  })
+
+  it('可以按分类和分组聚合成段', async () => {
+    const db = tempDb()
+    const ancient = Math.floor(Date.now() / 1000) - 400 * 86400
+    const line = '他把窗打开，夜里的风就这样进来了。'
+    const second = '她把信收回抽屉，没有再提起这件事。'
+    db.upsertShelfBook(shelfBook({ bookId: 'lit', title: '文', readUpdateTime: ancient, category: '文学-小说' }))
+    db.upsertShelfBook(shelfBook({ bookId: 'his', title: '史', readUpdateTime: ancient, category: '历史' }))
+    db.replaceHighlights('lit', 3, [{ chapterUid: 1, chapterIdx: 1, title: '章' }], [
+      { bookmarkId: 'lit-a', chapterUid: 1, markText: line, range: null },
+      { bookmarkId: 'lit-b', chapterUid: 1, markText: second, range: null },
+      { bookmarkId: 'lit-short', chapterUid: 1, markText: '但是这句接上文。', range: null },
+    ])
+    db.replaceHighlights('his', 1, [{ chapterUid: 1, chapterIdx: 1, title: '章' }], [
+      { bookmarkId: 'his-a', chapterUid: 1, markText: line, range: null },
+    ])
+    db.replaceArchiveGroups([{ name: '枕边', bookIds: ['lit'] }])
+    const app = createApp({ db, createClient: () => fakeWeread({}) })
+    const categories = await (await app.request('/api/encounter?view=category&count=1')).json() as { sections: Array<{ key: string; lineCount: number; encounters: Array<{ bookmarkId: string }> }> }
+    expect(categories.sections.map((section) => [section.key, section.lineCount, section.encounters.length])).toEqual([
+      ['文学', 3, 1],
+      ['历史', 1, 1],
+    ])
+    const groups = await (await app.request('/api/encounter?view=group&count=5')).json() as { sections: Array<{ key: string; encounters: Array<{ bookmarkId: string }> }> }
+    expect(groups.sections.map((section) => [section.key, section.encounters.map((item) => item.bookmarkId).sort()])).toEqual([
+      ['枕边', ['lit-a', 'lit-b']],
+      ['未分组', ['his-a']],
+    ])
+    const flat = await (await app.request('/api/encounter?count=10')).json() as { encounters: unknown[]; sections?: unknown }
+    expect(flat.encounters).toHaveLength(3)
+    expect(flat.sections).toBeUndefined()
+    db.close()
+  })
+
   it('没有合格划线时不占开屏', async () => {
     const db = tempDb()
     const app = createApp({ db, createClient: () => fakeWeread({}) })

@@ -1,4 +1,4 @@
-import type { Encounter } from '../shared/encounter'
+import type { Encounter, EncounterSection, EncounterView, ReadingScope } from '../shared/encounter'
 import type { ScopeKind, ThemeBoard, ThemeHighlightLine, ThemeScopeOption } from '../shared/themes'
 import type { MapQuote, MapSourceBook } from '../shared/reading-map'
 import type { BookDetail, BooksResponse, SyncStatus } from '../shared/types'
@@ -61,10 +61,13 @@ export function getMapQuotes(category: string) {
   return request<{ quotes: MapQuote[] }>(`/api/map/quotes?${query}`)
 }
 
-export function getEncounter(exclude: string[] = [], count = 3) {
-  const params = new URLSearchParams({ count: String(count) })
-  if (exclude.length > 0) params.set('exclude', exclude.join(','))
-  return request<{ encounters: Encounter[] }>(`/api/encounter?${params}`)
+export type EncounterBoard =
+  | { encounters: Encounter[] }
+  | { sections: EncounterSection[] }
+
+export function getEncounter(exclude: string[] = [], count = 3, scope: ReadingScope = 'all', view: EncounterView = 'flat') {
+  const params = encounterParams(exclude, count, scope, view)
+  return request<EncounterBoard>(`/api/encounter?${params}`)
 }
 
 export type AuthMe = {
@@ -135,10 +138,17 @@ export function getPublicMapQuotes(token: string, category: string) {
   return request<{ quotes: MapQuote[] }>(`/api/public/shelves/${encodeURIComponent(token)}/map/quotes?${query}`)
 }
 
-export function getPublicEncounter(token: string, exclude: string[] = [], count = 3) {
+export function getPublicEncounter(token: string, exclude: string[] = [], count = 3, scope: ReadingScope = 'all', view: EncounterView = 'flat') {
+  const params = encounterParams(exclude, count, scope, view)
+  return request<EncounterBoard>(`/api/public/shelves/${encodeURIComponent(token)}/encounter?${params}`)
+}
+
+function encounterParams(exclude: string[], count: number, scope: ReadingScope, view: EncounterView) {
   const params = new URLSearchParams({ count: String(count) })
+  if (scope !== 'all') params.set('scope', scope)
+  if (view !== 'flat') params.set('view', view)
   if (exclude.length > 0) params.set('exclude', exclude.join(','))
-  return request<{ encounters: Encounter[] }>(`/api/public/shelves/${encodeURIComponent(token)}/encounter?${params}`)
+  return params
 }
 
 export function getThemeScopes() {

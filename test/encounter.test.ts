@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isForgotten, isStandaloneSentence, pickEncounters, type EncounterCandidate } from '../src/shared/encounter'
+import { aggregateEncounters, inReadingScope, isForgotten, isStandaloneSentence, pickEncounters, readingScope, type EncounterCandidate, type HighlightLine } from '../src/shared/encounter'
 
 const now = new Date(2026, 8, 28, 12)
 
@@ -53,5 +53,58 @@ describe('还能独立读的划线', () => {
 
   it('没有合格的句子时什么都不给', () => {
     expect(pickEncounters([line({ bookmarkId: 'x', markText: '但是这句接上文。' })], now)).toEqual([])
+  })
+
+  it('已读完和进行中按进度分开，没开始的书只留在所有书籍', () => {
+    expect(readingScope('nope')).toBe('all')
+    expect(readingScope('finished')).toBe('finished')
+    const finished = { finishReading: true, progress: 40 }
+    const doneByProgress = { finishReading: false, progress: 100 }
+    const reading = { finishReading: false, progress: 12 }
+    const unread = { finishReading: false, progress: 0 }
+    const unknown = { finishReading: false, progress: null }
+    expect(inReadingScope(finished, 'finished')).toBe(true)
+    expect(inReadingScope(doneByProgress, 'finished')).toBe(true)
+    expect(inReadingScope(reading, 'finished')).toBe(false)
+    expect(inReadingScope(reading, 'reading')).toBe(true)
+    expect(inReadingScope(unread, 'reading')).toBe(false)
+    expect(inReadingScope(unknown, 'reading')).toBe(false)
+    expect(inReadingScope(unread, 'all')).toBe(true)
+  })
+
+  it('按分类和分组把还能独立读的句子聚到一起', () => {
+    const ancient = Math.floor(new Date(2024, 0, 1).getTime() / 1000)
+    const sourced = (patch: Partial<HighlightLine & { groupNames: string[] }> & Pick<HighlightLine, 'bookmarkId' | 'markText'>): HighlightLine & { groupNames: string[] } => ({
+      bookId: 'book',
+      title: '旧书',
+      chapterUid: 1,
+      readUpdateTime: ancient,
+      finishReading: false,
+      progress: 20,
+      category: null,
+      groupNames: [],
+      ...patch,
+    })
+    const lines = [
+      sourced({ bookmarkId: 'a', bookId: 'lit', category: '文学-小说', groupNames: ['枕边', '诗'], markText: '他把窗打开，夜里的风就这样进来了。' }),
+      sourced({ bookmarkId: 'b', bookId: 'lit', category: '文学-小说', groupNames: ['枕边', '诗'], markText: '她把信收回抽屉，没有再提起这件事。' }),
+      sourced({ bookmarkId: 'c', bookId: 'his', category: '历史', groupNames: [], markText: '他把地图折好，决定明天再出发。' }),
+      sourced({ bookmarkId: 'skip', bookId: 'his', category: '历史', groupNames: [], markText: '但是这句接上文。' }),
+      sourced({ bookmarkId: 'fresh', bookId: 'now', category: '历史', groupNames: ['枕边'], markText: '他把灯关掉，房间就这样安静下来。', readUpdateTime: Math.floor(new Date(2026, 8, 1).getTime() / 1000) }),
+    ]
+    const categories = aggregateEncounters(lines, 'category', now, 1, () => 0)
+    expect(categories.map((section) => [section.key, section.lineCount, section.bookCount, section.encounters.length])).toEqual([
+      ['历史', 3, 2, 1],
+      ['文学', 2, 1, 1],
+    ])
+    const groups = aggregateEncounters(lines, 'group', now, 3, () => 0)
+    expect(Object.fromEntries(groups.map((section) => [section.key, section.lineCount]))).toEqual({
+      枕边: 3,
+      诗: 2,
+      未分组: 2,
+    })
+    expect(groups.at(-1)?.key).toBe('未分组')
+    expect(groups.find((section) => section.key === '枕边')?.encounters.map((item) => item.bookmarkId)).toEqual(['a', 'b'])
+    expect(groups.find((section) => section.key === '未分组')?.bookCount).toBe(1)
   })
 })
