@@ -82,22 +82,90 @@ export function pickEncounters(
 ): Encounter[] {
   const eligible = candidates.filter((item) => isStandaloneSentence(item.markText) && (!forgotten || isForgotten(item.readUpdateTime, now)))
   const fresh = eligible.filter((item) => !exclude.has(item.bookmarkId))
-  const pool = fresh.length >= count || fresh.length === eligible.length ? fresh : [...fresh, ...eligible.filter((item) => exclude.has(item.bookmarkId))]
+  const used = eligible.filter((item) => exclude.has(item.bookmarkId))
+  const seenBooks = new Set<string>()
+  const previousBooks = new Set(used.map((item) => item.bookId))
+  const chosen: Encounter[] = []
+
+  const unseen = takeBooks(fresh.filter((item) => !previousBooks.has(item.bookId)), count, random, seenBooks)
+  chosen.push(...unseen.chosen)
+  const seenBefore = takeBooks(fresh.filter((item) => previousBooks.has(item.bookId)), count - chosen.length, random, seenBooks)
+  chosen.push(...seenBefore.chosen)
+  chosen.push(...drawFrom([...unseen.rest, ...seenBefore.rest], count - chosen.length, random))
+  if (chosen.length >= count) return chosen
+
+  const reused = takeBooks(used, count - chosen.length, random, seenBooks)
+  chosen.push(...reused.chosen)
+  if (chosen.length >= count) return chosen
+  return [...chosen, ...drawFrom(reused.rest, count - chosen.length, random)]
+}
+
+function takeBooks(
+  pool: EncounterCandidate[],
+  count: number,
+  random: () => number,
+  seenBooks: Set<string>,
+): { chosen: Encounter[]; rest: EncounterCandidate[] } {
+  if (count <= 0 || pool.length === 0) return { chosen: [], rest: pool }
+  const byBook = new Map<string, EncounterCandidate[]>()
+  const rest: EncounterCandidate[] = []
+  for (const item of pool) {
+    if (seenBooks.has(item.bookId)) {
+      rest.push(item)
+      continue
+    }
+    const lines = byBook.get(item.bookId) ?? []
+    lines.push(item)
+    byBook.set(item.bookId, lines)
+  }
+  const chosen: Encounter[] = []
+  for (const bookId of shuffle([...byBook.keys()], random)) {
+    const lines = byBook.get(bookId) ?? []
+    if (chosen.length >= count) {
+      rest.push(...lines)
+      continue
+    }
+    const index = Math.min(lines.length - 1, Math.floor(random() * lines.length))
+    const item = lines[index]
+    if (!item) continue
+    seenBooks.add(bookId)
+    chosen.push(toEncounter(item))
+    rest.push(...lines.filter((_, lineIndex) => lineIndex !== index))
+  }
+  return { chosen, rest }
+}
+
+function drawFrom(pool: EncounterCandidate[], count: number, random: () => number): Encounter[] {
   const bag = [...pool]
   const chosen: Encounter[] = []
   while (chosen.length < count && bag.length > 0) {
     const index = Math.min(bag.length - 1, Math.floor(random() * bag.length))
     const [item] = bag.splice(index, 1)
     if (!item) break
-    chosen.push({
-      bookmarkId: item.bookmarkId,
-      bookId: item.bookId,
-      title: item.title,
-      chapterUid: item.chapterUid,
-      markText: item.markText.trim(),
-    })
+    chosen.push(toEncounter(item))
   }
   return chosen
+}
+
+function shuffle<T>(items: T[], random: () => number): T[] {
+  const result = [...items]
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const swap = Math.min(index, Math.floor(random() * (index + 1)))
+    const current = result[index]!
+    result[index] = result[swap]!
+    result[swap] = current
+  }
+  return result
+}
+
+function toEncounter(item: EncounterCandidate): Encounter {
+  return {
+    bookmarkId: item.bookmarkId,
+    bookId: item.bookId,
+    title: item.title,
+    chapterUid: item.chapterUid,
+    markText: item.markText.trim(),
+  }
 }
 
 export function aggregateEncounters(

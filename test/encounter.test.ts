@@ -51,6 +51,48 @@ describe('还能独立读的划线', () => {
     expect(again.map((item) => item.bookmarkId)).toEqual(['d', 'a', 'b'])
   })
 
+  it('没抽过的句子不够时先全部用上，缺的再从上一批补', () => {
+    const pool = [
+      line({ bookmarkId: 'a', markText: '他把窗打开，夜里的风就这样进来了。' }),
+      line({ bookmarkId: 'b', markText: '她把信收回抽屉，没有再提起这件事。' }),
+      line({ bookmarkId: 'c', markText: '海面忽然静了下来，灯塔却还亮着。' }),
+      line({ bookmarkId: 'd', markText: '他把地图折好，决定明天再出发。' }),
+      line({ bookmarkId: 'e', markText: '他把灯关掉，房间就这样安静下来。' }),
+    ]
+    const again = pickEncounters(pool, now, 4, () => 0.999, new Set(['a', 'b', 'c']))
+    const ids = again.map((item) => item.bookmarkId)
+    expect(ids).toHaveLength(4)
+    expect(ids.filter((id) => id === 'd' || id === 'e').sort()).toEqual(['d', 'e'])
+  })
+
+  it('书够的时候一本一句，重新随机换成另一批书', () => {
+    const sentence = '他把窗打开，夜里的风就这样进来了。'
+    const pool = Array.from({ length: 120 }, (_, index) => line({
+      bookmarkId: `mark-${index}`,
+      bookId: `book-${index}`,
+      title: `书${index}`,
+      markText: sentence,
+    }))
+    const first = pickEncounters(pool, now, 50, Math.random)
+    expect(first).toHaveLength(50)
+    expect(new Set(first.map((item) => item.bookId)).size).toBe(50)
+    const second = pickEncounters(pool, now, 50, Math.random, new Set(first.map((item) => item.bookmarkId)))
+    expect(new Set(second.map((item) => item.bookId)).size).toBe(50)
+    const seen = new Set(first.map((item) => item.bookId))
+    expect(second.every((item) => !seen.has(item.bookId))).toBe(true)
+  })
+
+  it('书不够五十本时，先每本一句，再从已有的书补', () => {
+    const pool = [
+      line({ bookmarkId: 'a1', bookId: 'alpha', markText: '他把窗打开，夜里的风就这样进来了。' }),
+      line({ bookmarkId: 'a2', bookId: 'alpha', markText: '她把信收回抽屉，没有再提起这件事。' }),
+      line({ bookmarkId: 'b1', bookId: 'beta', markText: '海面忽然静了下来，灯塔却还亮着。' }),
+    ]
+    const drawn = pickEncounters(pool, now, 3, () => 0)
+    expect(drawn.map((item) => item.bookId).sort()).toEqual(['alpha', 'alpha', 'beta'])
+    expect(drawn.map((item) => item.bookmarkId).sort()).toEqual(['a1', 'a2', 'b1'])
+  })
+
   it('没有合格的句子时什么都不给', () => {
     expect(pickEncounters([line({ bookmarkId: 'x', markText: '但是这句接上文。' })], now)).toEqual([])
   })
@@ -104,7 +146,7 @@ describe('还能独立读的划线', () => {
       未分组: 2,
     })
     expect(groups.at(-1)?.key).toBe('未分组')
-    expect(groups.find((section) => section.key === '枕边')?.encounters.map((item) => item.bookmarkId)).toEqual(['a', 'b', 'fresh'])
+    expect(groups.find((section) => section.key === '枕边')?.encounters.map((item) => item.bookmarkId).sort()).toEqual(['a', 'b', 'fresh'])
     expect(groups.find((section) => section.key === '未分组')?.bookCount).toBe(1)
   })
 })
