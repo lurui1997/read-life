@@ -14,6 +14,7 @@ import { readConfig } from './config'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const port = Number(process.env.PORT ?? 8787)
+const hostname = process.env.HOST?.trim() || '127.0.0.1'
 const dbPath = process.env.READ_LIFE_DB ?? path.join(root, 'data', 'read-life.sqlite')
 
 const config = readConfig()
@@ -58,8 +59,8 @@ const production = process.env.NODE_ENV === 'production'
 if (production) {
   app.use('/assets/*', serveStatic({ root: path.join(root, 'dist') }))
   app.get('*', (c) => c.html(fs.readFileSync(path.join(root, 'dist', 'index.html'), 'utf8')))
-  serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, (info) => {
-    console.log(`折角已在 http://127.0.0.1:${info.port} 打开`)
+  serve({ fetch: app.fetch, port, hostname }, (info) => {
+    console.log(listenMessage(hostname, info.port))
   })
 } else {
   const { createServer: createViteServer } = await import('vite')
@@ -79,9 +80,14 @@ if (production) {
       res.end()
     })
   })
-  server.listen(port, '127.0.0.1', () => {
-    console.log(`折角已在 http://127.0.0.1:${port} 打开`)
+  server.listen(port, hostname, () => {
+    console.log(listenMessage(hostname, port))
   })
+}
+
+function listenMessage(bindHost: string, listenPort: number) {
+  const host = bindHost === '0.0.0.0' || bindHost === '::' ? '127.0.0.1' : bindHost
+  return `折角已在 http://${host}:${listenPort} 打开`
 }
 
 async function nodeRequest(req: IncomingMessage): Promise<Request> {

@@ -137,7 +137,7 @@ describe('人生手册接口', () => {
     seed(db, 'a', '甲书', '甲书独有句子阿尔法')
     const model = modelFrom(async (prompt) => {
       if (prompt.includes('一张不超过 180 字')) return '卡片'
-      if (prompt.includes('重写人生手册')) return JSON.stringify({ title: '改过的章', body: '重写后的正文。', bookIds: ['a'] })
+      if (prompt.includes('可以换标题')) return JSON.stringify({ title: '改过的章', body: '重写后的正文。', bookIds: ['a'] })
       return JSON.stringify(seven(['a']))
     })
     const app = createApp({
@@ -161,6 +161,7 @@ describe('人生手册接口', () => {
 
     await app.request('/api/handbook/chapters/2/rewrite', { method: 'POST' })
     const rewritten = await settle(app)
+    expect(rewritten.job.error).toBeNull()
     expect(rewritten.chapters[1]?.title).toBe('改过的章')
     expect(rewritten.chapters[0]?.title).toBe('第1章')
 
