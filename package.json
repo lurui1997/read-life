@@ -1,6 +1,19 @@
 {
   "name": "read-life",
-  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "author": "lurui1997 (言七)",
+  "homepage": "https://read-life.aikipedia.cn/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lurui1997/read-life.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lurui1997/read-life/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
   "scripts": {
     "dev": "tsx src/server/index.ts",

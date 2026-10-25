@@ -8,8 +8,10 @@
 [![GitHub forks](https://img.shields.io/github/forks/lurui1997/read-life?style=for-the-badge&logo=github)](https://github.com/lurui1997/read-life/network/members)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
+[![CI](https://github.com/lurui1997/read-life/actions/workflows/ci.yml/badge.svg)](https://github.com/lurui1997/read-life/actions/workflows/ci.yml)
 
-[快速开始](#快速开始) · [功能亮点](#功能亮点) · [惊喜模式](#惊喜模式) · [架构](#架构) · [开发](#开发)
+[快速开始](#快速开始) · [功能亮点](#功能亮点) · [惊喜模式](#惊喜模式) · [开源与部署](#开源与部署) · [开发](#开发)
 
 </div>
 
@@ -40,6 +42,7 @@
 - [技术栈](#技术栈)
 - [开发](#开发)
 - [路线图](#路线图)
+- [开源与部署](#开源与部署)
 - [参与贡献](#参与贡献)
 - [FAQ](#faq)
 
@@ -59,7 +62,10 @@
 | --- | --- |
 | **书架** | 大数字概览 + 五种浏览方式，分组默认折叠 |
 | **分组 / 分类** | 左侧导航、右侧书 grid，无限滚动 |
-| **书页** | 按章节展示全部划线，窄栏心流排版 |
+| **书页** | 按章节展示全部划线，可导出 Markdown / CSV |
+| **划线** | 从划线里随机抽出能单独成句的句子 |
+| **地图** | 按分类把阅读堆成可旋转的地形 |
+| **手册** | 选至多 3 本书，写成七章人生手册 |
 | **惊喜模式** | 随机打乱书序，「换一个顺序」重新洗牌 |
 
 > 提示：首次访问可在导览最后一页点击「试试惊喜模式」一键体验。
@@ -87,20 +93,43 @@
 - 单本失败不拖垮整架；失败项下次自动重试
 - 后台补拉分类、推荐值；启动时刷新书架分组
 
-### 书架
+### 多维书架
 
-- **分组** — 同步微信读书分组，左右分栏
+同一架书有五种看法，分组和分类是左右分栏：
+
+- **分组** — 同步微信读书分组
 - **进度** — 在读 / 未读 / 已读完
 - **推荐值** — 神作、好评如潮等档位
 - **分类** — 大类 + 子类筛选
 - **随机** — 按进度分组 + 惊喜模式
+- **搜索** — 书架以及分组 / 分类页可搜书名、作者
 - **无限滚动** — 接近底部自动加载
 - **本地缓存** — 打开先显示缓存，同步后刷新
 
-### 书页
+### 阅读地图
 
-- 划线按章节静静呈现
-- 返回书架 · 跳转微信读书继续读
+导航「地图」（`/map`）按分类把划线数量铺成地形。可以按月份回放、拖动旋转、缩放、点开一座山看里面的书，并导出 PNG。分享出去的书架也有同一张地图。
+
+### 章节划线
+
+书页按章节列出这本书的全部划线，窄栏排版。可以返回书架，或跳到微信读书继续读。从划线页点进来时，会滚到对应的那一条。
+
+### 导出
+
+有划线的书页提供两个下载：
+
+- Markdown：`/api/books/:bookId/export`
+- CSV：`/api/books/:bookId/export?format=csv`
+
+文件名取书名，内容按章节排列。
+
+### 划线邂逅
+
+导航上的名字是「划线」（`/encounter`）。它从已同步的划线里抽出能单独成句的句子。范围可以是所有书籍、已读完或进行中；看法可以是随机、分组或分类。点一条会打开那一章。分享书架也有这一页。
+
+### 人生手册
+
+导航「手册」（`/handbook`）。每次最多选 3 本书，按划线写成七章，可以手改章名和正文、重写一章、为这一章配图。旧手册留在历史里。生成和配图依赖本机已登录的 Cursor CLI（`agent`）；没有 CLI 时，已经写好的章节仍然可以读。
 
 ### 设计
 
@@ -213,6 +242,7 @@ npm run build         # 构建前端
 | 环境变量 | 默认 | 说明 |
 | --- | --- | --- |
 | `PORT` | `8787` | 监听端口 |
+| `HOST` | `127.0.0.1` | 监听地址。容器里设为 `0.0.0.0`，端口才能映射出来 |
 | `READ_LIFE_DB` | `data/read-life.sqlite` | 数据库路径 |
 | `NODE_ENV` | — | `production` 时服务静态资源 |
 | `LOCAL_AUTH` | `off` | `on` 时必须注册登录，书架按用户隔离 |
@@ -224,22 +254,70 @@ npm run build         # 构建前端
 
 ## 路线图
 
-- [ ] 导出划线（Markdown / CSV）
-- [ ] 搜索书名与划线全文
-- [ ] 阅读统计
+已经在代码里：
 
-**本机默认单用户**（`LOCAL_AUTH=off`）。公网部署设置 `LOCAL_AUTH=on`，并用 `SESSION_SECRET`、`WEREAD_SECRET` 开启注册登录与扫码绑定。有声书、书评仍不做。
+- [x] 导出划线（Markdown / CSV）
+- [x] 多维书架，以及书名、作者搜索
+- [x] 阅读地图
+- [x] 划线邂逅（导航「划线」，`/encounter`）
+- [x] 人生手册
+
+还没有：
+
+- [ ] 划线全文搜索
+- [ ] 独立的阅读统计页（书页已显示进度、时长和划线条数）
+
+**本机默认单用户**（`LOCAL_AUTH=off`）。公网部署设置 `LOCAL_AUTH=on`，并用 `SESSION_SECRET`、`WEREAD_SECRET` 开启注册登录与扫码绑定。有声书、书评仍不做。近期维护见 [docs/MAINTENANCE.md](docs/MAINTENANCE.md)。
+
+---
+
+## 开源与部署
+
+| | |
+| --- | --- |
+| 许可证 | [MIT](LICENSE)，版权 **lurui1997 / 言七**。`package.json` 的 `license` 为 `MIT`，仓库可以当开源项目安装 |
+| 持续集成 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml)：推送或 Pull Request 到 `main` 时，用 Node.js 20 执行 `npm ci`、`npm test`、`npx tsc --noEmit` |
+| 维护 | [docs/MAINTENANCE.md](docs/MAINTENANCE.md)：贡献流程、Issue / PR 约定、近期计划 |
+| 示例 | <https://read-life.aikipedia.cn/> |
+
+### Docker
+
+镜像默认基于国内源 `docker.1ms.run/library/node:20-bookworm-slim`，避免拉取 Docker Hub 超时。官方镜像是 `node:20-bookworm-slim`，构建时用 `NODE_IMAGE` 换掉即可。容器监听 `0.0.0.0:8787`，数据库和手册图片放在挂载的 `data/`。
+
+```bash
+# 国内镜像（Dockerfile 默认）
+docker build -t read-life .
+
+# 官方 Node 镜像
+docker build --build-arg NODE_IMAGE=node:20-bookworm-slim -t read-life .
+
+docker run --rm -p 8787:8787 -v "$(pwd)/data:/data" read-life
+```
+
+一条命令（同样默认国内镜像）：
+
+```bash
+docker compose up --build
+```
+
+改用官方镜像：
+
+```bash
+NODE_IMAGE=node:20-bookworm-slim docker compose up --build
+```
+
+浏览器打开 **http://127.0.0.1:8787**。`data/` 已在 `.gitignore` 里，不要把书架数据库提交进仓库。
 
 ---
 
 ## 参与贡献
 
-Issue 和 Pull Request 都欢迎。
+Issue 和 Pull Request 都欢迎。流程见 [CONTRIBUTING.md](CONTRIBUTING.md) 和 [docs/MAINTENANCE.md](docs/MAINTENANCE.md)。
 
 1. Fork 本仓库
 2. 创建分支：`git checkout -b feat/your-feature`
 3. 提交改动并推送到分支
-4. 发起 Pull Request
+4. 发起 Pull Request，并确认 CI 通过
 
 如果这个项目对你有帮助，欢迎 **Star** 支持，也欢迎 **Fork** 按自己的习惯改造。
 

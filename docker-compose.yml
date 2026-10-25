@@ -1,0 +1,16 @@
+services:
+  read-life:
+    build:
+      context: .
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-docker.1ms.run/library/node:20-bookworm-slim}
+    image: read-life
+    ports:
+      - "8787:8787"
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "8787"
+      READ_LIFE_DB: /data/read-life.sqlite
+    volumes:
+      - ./data:/data
