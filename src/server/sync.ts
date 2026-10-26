@@ -242,7 +242,7 @@ function sameClock(incoming: number | null, cursor: ProgressCursor): boolean {
 }
 
 async function fetchShelf(client: WereadClient): Promise<{ books: ShelfBook[]; archive: ArchiveGroup[] }> {
-  const data = (await client.call('/shelf/sync')) as { books?: unknown; archive?: unknown }
+  const data = (await callWithRetry(() => client.call('/shelf/sync'))) as { books?: unknown; archive?: unknown }
   if (!Array.isArray(data.books)) throw new WereadError('书架响应缺少 books')
   return {
     books: data.books.map(parseShelfBook),
@@ -272,7 +272,7 @@ async function fetchNoteCounts(client: WereadClient, onSeen?: (seen: number) => 
   for (let page = 0; page < 200; page += 1) {
     const params: Record<string, unknown> = { count: NOTEBOOK_PAGE }
     if (lastSort !== undefined) params.lastSort = lastSort
-    const data = (await client.call('/user/notebooks', params)) as { books?: unknown; hasMore?: unknown }
+    const data = (await callWithRetry(() => client.call('/user/notebooks', params))) as { books?: unknown; hasMore?: unknown }
     if (!Array.isArray(data.books)) throw new WereadError('笔记本响应缺少 books')
     for (const item of data.books) counts.set(readBookId(item), readNoteCount(item))
     onSeen?.(counts.size)

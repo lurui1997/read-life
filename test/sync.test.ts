@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { WereadError } from '../src/server/weread'
 import { runSync } from '../src/server/sync'
 import { fakeWeread, highlights, localTimestamp, notebookPage, progress, shelfBook, tempDb } from './helpers'
 
@@ -375,6 +376,26 @@ describe('同步', () => {
     expect(attempts).toBe(3)
     expect(record.failed).toBe(0)
     expect(db.getBook('695233')?.progress).toBe(4)
+    db.close()
+  })
+
+  it('拉书架返回 499 时重试，成功后不记成空书架', async () => {
+    const db = tempDb()
+    const client = library()
+    const inner = client.call.bind(client)
+    let shelfAttempts = 0
+    client.call = async (apiName, params) => {
+      if (apiName === '/shelf/sync') {
+        shelfAttempts += 1
+        if (shelfAttempts === 1) throw new WereadError('微信读书请求失败（HTTP 499）')
+      }
+      return inner(apiName, params)
+    }
+    const record = await runSync(db, client, { force: false })
+    expect(shelfAttempts).toBe(2)
+    expect(record.message).toBe('')
+    expect(record.shelfCount).toBe(1)
+    expect(db.getBook('695233')?.title).toBe('三体')
     db.close()
   })
 })

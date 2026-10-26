@@ -290,6 +290,14 @@ function writeDismissedSync(finishedAt: string) {
   }
 }
 
+function syncDoneLine(last: NonNullable<SyncStatus['last']>): string {
+  const failedBeforeShelf = Boolean(last.message) && last.shelfCount === 0 && last.updated === 0 && last.skipped === 0 && last.failed === 0
+  if (failedBeforeShelf) return `这次同步没有完成。${last.message}`
+  const failed = last.failed > 0 ? `，失败 ${last.failed}` : ''
+  const detail = last.message ? `。${last.message}` : ''
+  return `同步完成：书架 ${last.shelfCount} 本，更新 ${last.updated}，跳过 ${last.skipped}${failed}${detail}`
+}
+
 function syncLine(status: SyncStatus): string {
   const latest = status.recent?.[0]
   const just = latest
@@ -344,11 +352,7 @@ function SyncBanner({ status, notifySyncAt }: { status: SyncStatus | null; notif
   if (notifySyncAt !== status.last.finishedAt) return null
   return (
     <div className="banner banner-done">
-      <p>
-        同步完成：书架 {status.last.shelfCount} 本，更新 {status.last.updated}，跳过 {status.last.skipped}
-        {status.last.failed > 0 ? `，失败 ${status.last.failed}` : ''}
-        {status.last.message ? `。${status.last.message}` : ''}
-      </p>
+      <p>{syncDoneLine(status.last)}</p>
       <button
         type="button"
         className="banner-close"

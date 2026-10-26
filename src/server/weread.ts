@@ -1,5 +1,5 @@
 export const GATEWAY_URL = 'https://i.weread.qq.com/api/agent/gateway'
-export const SKILL_VERSION = '1.0.3'
+export const SKILL_VERSION = '1.0.5'
 
 export type WereadClient = {
   call(apiName: string, params?: Record<string, unknown>): Promise<unknown>
