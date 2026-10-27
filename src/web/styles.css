@@ -26,6 +26,8 @@
   --radius-md: 14px;
   --radius-sm: 10px;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --scrollbar: #c4b49a;
+  --scrollbar-strong: #a89478;
   --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Songti SC", "Noto Serif SC", serif;
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
   --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
@@ -68,6 +70,8 @@ html[data-theme="bamboo"] {
   --page-bg:
     radial-gradient(ellipse 120% 80% at 50% -20%, rgba(255, 255, 255, 0.55), transparent 55%),
     linear-gradient(180deg, var(--paper-deep) 0%, var(--paper-edge) 100%);
+  --scrollbar: #a3bda6;
+  --scrollbar-strong: #6f9478;
 }
 
 html[data-theme="frost"] {
@@ -97,6 +101,8 @@ html[data-theme="frost"] {
   --page-bg:
     radial-gradient(ellipse 120% 80% at 50% -20%, rgba(255, 255, 255, 0.7), transparent 55%),
     linear-gradient(180deg, var(--paper-deep) 0%, var(--paper-edge) 100%);
+  --scrollbar: #9eb4c0;
+  --scrollbar-strong: #6f8fa0;
 }
 
 html[data-theme="night"] {
@@ -126,9 +132,16 @@ html[data-theme="night"] {
   --page-bg:
     radial-gradient(ellipse 120% 80% at 50% -20%, rgba(80, 62, 42, 0.28), transparent 55%),
     linear-gradient(180deg, var(--paper-deep) 0%, var(--paper-edge) 100%);
+  --scrollbar: #6b5e52;
+  --scrollbar-strong: #8d7d6e;
 }
 
 * { box-sizing: border-box; }
+
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
+}
 
 body {
   margin: 0;
@@ -422,7 +435,7 @@ button:disabled {
 .shelf-intro {
   margin: 0 0 36px;
   padding: 0 0 32px;
-  border-bottom: 1px solid rgba(232, 221, 208, 0.65);
+  border-bottom: 1px solid var(--surface-border);
 }
 
 .shelf-eyebrow {
@@ -614,7 +627,7 @@ button:disabled {
 }
 
 .feature-showcase-action:hover {
-  background: #245a43;
+  background: var(--accent);
 }
 
 .feature-showcase-stage {
@@ -1240,7 +1253,7 @@ button:disabled {
   margin-bottom: 20px;
   padding: 14px 16px;
   overflow: hidden;
-  background: linear-gradient(135deg, var(--surface) 0%, #f8f0e4 100%);
+  background: linear-gradient(135deg, var(--surface) 0%, var(--surface-2) 100%);
   border: 1px dashed var(--wash-deep);
   border-radius: 20px;
   transition:
@@ -1536,7 +1549,7 @@ button:disabled {
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
-  scrollbar-color: #c4b49a transparent;
+  scrollbar-color: var(--scrollbar) transparent;
 }
 
 .browse-nav-list::-webkit-scrollbar {
@@ -1548,13 +1561,14 @@ button:disabled {
 }
 
 .browse-nav-list::-webkit-scrollbar-thumb {
-  background-color: #c4b49a;
-  border: 2px solid rgba(255, 250, 243, 0.96);
+  background-color: var(--scrollbar);
+  border: 2px solid transparent;
+  background-clip: padding-box;
   border-radius: 999px;
 }
 
 .browse-nav-list::-webkit-scrollbar-thumb:hover {
-  background-color: #a89478;
+  background-color: var(--scrollbar-strong);
 }
 
 .browse-nav-empty {
@@ -1581,8 +1595,8 @@ button:disabled {
 }
 
 .browse-nav-item.active {
-  background: #eef5f0;
-  border-color: #b8d0c3;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--surface-border));
 }
 
 .browse-nav-copy {
@@ -1692,7 +1706,7 @@ button:disabled {
 .browse-empty {
   padding: 28px 20px;
   background: var(--surface);
-  border: 1px solid #e4d8c6;
+  border: 1px solid var(--surface-border);
   border-radius: 20px;
 }
 
@@ -2210,14 +2224,14 @@ button:disabled {
   flex: none;
   padding: 3px 10px;
   border-radius: 999px;
-  background: rgba(47, 92, 63, 0.12);
-  color: #2f5c3f;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent-deep);
   font-size: 0.75rem;
   letter-spacing: 0.04em;
 }
 
 .settings-pill-wait {
-  background: rgba(90, 78, 62, 0.08);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
   color: var(--ink-muted);
 }
 
