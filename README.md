@@ -186,6 +186,10 @@ Key 写入 `data/read-life.sqlite`，不上传任何第三方。
 
 > API Key 需来自你已有的微信读书 Agent / 开放平台能力。本项目通过 `POST https://i.weread.qq.com/api/agent/gateway` 调用官方接口。
 
+### Obsidian
+
+同一套书架和划线可以进 Obsidian。插件在 [`obsidian/`](obsidian/README.md)：按章节写笔记、分组书架，以及能单独成句的划线。安装步骤见该目录的说明。
+
 ---
 
 ## 使用提示

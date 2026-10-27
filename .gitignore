@@ -1,5 +1,7 @@
 node_modules/
 dist/
 data/
+obsidian/node_modules/
+obsidian/main.js
 .superpowers/
 docs/promo/

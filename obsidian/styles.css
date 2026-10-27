@@ -1,0 +1,163 @@
+.read-life {
+  padding: 8px 16px 48px;
+  height: 100%;
+  overflow: auto;
+}
+
+.read-life h2 {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.read-life-meta,
+.read-life-by,
+.read-life-empty {
+  color: var(--text-muted);
+}
+
+.read-life-meta,
+.read-life-by,
+.read-life-quote,
+.read-life-empty {
+  margin: 0;
+}
+
+.read-life-meta {
+  margin-top: 4px;
+}
+
+.read-life-actions,
+.read-life-tabs {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.read-life button {
+  font: inherit;
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  border: none;
+  border-radius: var(--radius-s);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.read-life button:hover {
+  background: var(--background-modifier-hover);
+}
+
+.read-life-tabs button.is-active,
+.read-life-actions button.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.read-life-search {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 12px 0;
+  padding: 8px 10px;
+  font: inherit;
+  color: var(--text-normal);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+}
+
+.read-life summary {
+  cursor: pointer;
+  padding: 10px 0;
+  font-weight: 600;
+}
+
+.read-life button.read-life-book,
+.read-life button.read-life-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  height: auto;
+  white-space: normal;
+  text-align: left;
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  background: transparent;
+  border-radius: 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.read-life button.read-life-card {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  margin-top: 12px;
+}
+
+.read-life-title {
+  font-weight: 600;
+}
+
+.read-life-quote {
+  font-size: 1.05em;
+  line-height: 1.7;
+  color: var(--text-normal);
+}
+
+.read-life-empty {
+  padding: 12px 0;
+}
+
+.read-life-settings-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.read-life-settings-pill {
+  padding: 2px 8px;
+  border-radius: var(--radius-s);
+  background: var(--background-modifier-success);
+  font-size: var(--font-ui-smaller);
+}
+
+.read-life-settings-pill.is-wait {
+  background: var(--background-modifier-border);
+}
+
+.read-life-settings-qr {
+  margin: 12px 0;
+}
+
+.read-life-settings-qr img {
+  width: 196px;
+  height: 196px;
+}
+
+.read-life-settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
+.read-life-settings-stat {
+  margin: 8px 0 0;
+  font-size: 2em;
+  font-weight: 600;
+}
+
+.read-life-settings .error {
+  color: var(--text-error);
+}
+
+.read-life-settings-manual {
+  margin-top: 12px;
+}
+
+.read-life-settings-manual input {
+  width: 100%;
+  margin: 8px 0;
+}

@@ -1,0 +1,20 @@
+{
+  "name": "read-life-obsidian",
+  "private": true,
+  "version": "0.1.0",
+  "description": "折角的 Obsidian 插件",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "node esbuild.config.mjs production",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/qrcode": "^1.5.6",
+    "esbuild": "^0.25.10",
+    "obsidian": "^1.8.7",
+    "typescript": "^5.9.2"
+  }
+}

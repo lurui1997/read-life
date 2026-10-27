@@ -1,0 +1,11 @@
+{
+  "id": "read-life",
+  "name": "折角",
+  "version": "0.1.0",
+  "minAppVersion": "1.7.2",
+  "description": "把微信读书的书架和划线留在库里，按章节回看，并邂逅能单独成句的划线。",
+  "author": "lurui1997",
+  "authorUrl": "https://github.com/lurui1997",
+  "requestUrl": true,
+  "isDesktopOnly": false
+}
