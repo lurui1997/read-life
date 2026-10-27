@@ -14,7 +14,6 @@ import { createWereadLogin } from './weread-login'
 import { wereadReaderUrl } from './weread-url'
 import { aggregateEncounters, encounterView, inReadingScope, pickEncounters, readingScope } from '../shared/encounter'
 import { HANDBOOK_BOOK_LIMIT, handbookBookIds } from '../shared/handbook'
-import { RECENT_SCOPE_KEY, type ScopeKind, type ThemeWrite } from '../shared/themes'
 import { contentDisposition, exportFilename, highlightsToCsv, highlightsToMarkdown } from '../shared/export-highlights'
 import type { SyncStatus } from '../shared/types'
 
@@ -445,68 +444,6 @@ export function createApp(options: AppOptions) {
 
   app.get('/api/map', (c) => c.json({ books: db.listMapBooks(c.get('userId')) }))
 
-  app.get('/api/themes/scopes', (c) => c.json(db.listThemeScopes(now(), c.get('userId'))))
-
-  app.get('/api/themes/highlights', (c) => {
-    const scope = readScope(c.req.query('kind'), c.req.query('key'))
-    if (!scope) return c.json({ error: '范围不对' }, 400)
-    const themeId = c.req.query('theme')?.trim() ?? ''
-    if (!themeId) return c.json({ error: '缺少主题' }, 400)
-    return c.json({ highlights: db.listThemeHighlights(scope.kind, scope.key, themeId, now(), c.get('userId')) })
-  })
-
-  app.get('/api/themes', (c) => {
-    const scope = readScope(c.req.query('kind'), c.req.query('key'))
-    if (!scope) return c.json({ error: '范围不对' }, 400)
-    return c.json(db.getThemeBoard(scope.kind, scope.key, now(), c.get('userId')))
-  })
-
-  app.post('/api/themes/cluster', async (c) => {
-    const body = await c.req.json().catch(() => null) as { kind?: string; key?: string } | null
-    const scope = readScope(body?.kind, body?.key)
-    if (!scope) return c.json({ error: '范围不对' }, 400)
-    return c.json(db.clusterThemeScope(scope.kind, scope.key, now(), c.get('userId')))
-  })
-
-  app.post('/api/themes/rename', async (c) => {
-    const body = await c.req.json().catch(() => null) as { themeId?: string; name?: string } | null
-    const themeId = body?.themeId?.trim() ?? ''
-    if (!themeId) return c.json({ error: '缺少主题' }, 400)
-    return themeError(c, db.renameTheme(themeId, body?.name ?? '', c.get('userId')))
-  })
-
-  app.post('/api/themes/merge', async (c) => {
-    const body = await c.req.json().catch(() => null) as { sourceId?: string; targetId?: string } | null
-    const sourceId = body?.sourceId?.trim() ?? ''
-    const targetId = body?.targetId?.trim() ?? ''
-    if (!sourceId || !targetId) return c.json({ error: '缺少主题' }, 400)
-    return themeError(c, db.mergeThemes(sourceId, targetId, c.get('userId')))
-  })
-
-  app.post('/api/themes/move', async (c) => {
-    const body = await c.req.json().catch(() => null) as {
-      kind?: string
-      key?: string
-      bookmarkId?: string
-      themeId?: string | null
-      create?: boolean
-    } | null
-    const scope = readScope(body?.kind, body?.key)
-    if (!scope) return c.json({ error: '范围不对' }, 400)
-    const bookmarkId = body?.bookmarkId?.trim() ?? ''
-    if (!bookmarkId) return c.json({ error: '缺少划线' }, 400)
-    const result = db.moveThemeHighlight({
-      kind: scope.kind,
-      key: scope.key,
-      bookmarkId,
-      themeId: body?.themeId ?? null,
-      create: body?.create === true,
-      now: now(),
-    }, c.get('userId'))
-    if (result !== 'ok') return themeError(c, result)
-    return c.json(db.getThemeBoard(scope.kind, scope.key, now(), c.get('userId')))
-  })
-
   app.get('/api/encounter', (c) => {
     return c.json(drawEncounters(db, c.get('userId'), c.req.query('count'), c.req.query('scope'), c.req.query('view'), c.req.query('exclude')))
   })
@@ -679,14 +616,6 @@ export function createApp(options: AppOptions) {
   })
 }
 
-function readScope(kind: string | undefined, key: string | undefined): { kind: ScopeKind; key: string } | null {
-  if (kind !== 'category' && kind !== 'group' && kind !== 'recent') return null
-  if (kind === 'recent') return { kind, key: RECENT_SCOPE_KEY }
-  const cleaned = key?.trim() ?? ''
-  if (!cleaned) return null
-  return { kind, key: cleaned }
-}
-
 async function readEncounterBody(c: { req: { json: () => Promise<unknown> } }): Promise<{ count?: string; scope?: string; view?: string; exclude?: string[] }> {
   const body = await c.req.json().catch(() => null)
   if (!body || typeof body !== 'object') return {}
@@ -733,14 +662,6 @@ function groupNamesByBook(groups: Array<{ name: string; bookIds: string[] }>): M
     }
   }
   return names
-}
-
-function themeError(c: { json: (body: unknown, status?: number) => Response }, result: ThemeWrite) {
-  if (result === 'ok') return c.json({ ok: true })
-  if (result === 'missing') return c.json({ error: '未找到这个主题' }, 404)
-  if (result === 'empty') return c.json({ error: '主题名不能为空' }, 400)
-  if (result === 'same') return c.json({ error: '不能并进自己' }, 400)
-  return c.json({ error: '这句不在当前范围里' }, 400)
 }
 
 function shareView(db: AppDatabase, userId: string) {

@@ -1,5 +1,3 @@
-import { topCategory } from './themes'
-
 export type EncounterCandidate = {
   bookmarkId: string
   bookId: string
@@ -156,6 +154,13 @@ function shuffle<T>(items: T[], random: () => number): T[] {
     result[swap] = current
   }
   return result
+}
+
+function topCategory(category: string | null | undefined): string {
+  const trimmed = category?.trim() ?? ''
+  if (!trimmed) return '未分类'
+  const head = trimmed.split('-')[0]?.trim()
+  return head || '未分类'
 }
 
 function toEncounter(item: EncounterCandidate): Encounter {

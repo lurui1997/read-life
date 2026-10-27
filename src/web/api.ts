@@ -1,5 +1,4 @@
 import type { Encounter, EncounterSection, EncounterView, ReadingScope } from '../shared/encounter'
-import type { ScopeKind, ThemeBoard, ThemeHighlightLine, ThemeScopeOption } from '../shared/themes'
 import type { MapQuote, MapSourceBook } from '../shared/reading-map'
 import type { BookDetail, BooksResponse, SyncStatus } from '../shared/types'
 
@@ -154,41 +153,6 @@ function requestEncounter(path: string, exclude: string[], count: number, scope:
   })
 }
 
-export function getThemeScopes() {
-  return request<{ categories: ThemeScopeOption[]; groups: ThemeScopeOption[]; recent: ThemeScopeOption }>('/api/themes/scopes')
-}
-
-export function getThemeBoard(kind: ScopeKind, key: string) {
-  const query = new URLSearchParams({ kind, key })
-  return request<ThemeBoard>(`/api/themes?${query}`)
-}
-
-export function getThemeHighlights(kind: ScopeKind, key: string, theme: string) {
-  const query = new URLSearchParams({ kind, key, theme })
-  return request<{ highlights: ThemeHighlightLine[] }>(`/api/themes/highlights?${query}`)
-}
-
-export function clusterThemes(kind: ScopeKind, key: string) {
-  return request<ThemeBoard>('/api/themes/cluster', {
-    method: 'POST',
-    body: JSON.stringify({ kind, key }),
-  })
-}
-
-export function renameTheme(themeId: string, name: string) {
-  return request<{ ok: boolean }>('/api/themes/rename', {
-    method: 'POST',
-    body: JSON.stringify({ themeId, name }),
-  })
-}
-
-export function mergeThemes(sourceId: string, targetId: string) {
-  return request<{ ok: boolean }>('/api/themes/merge', {
-    method: 'POST',
-    body: JSON.stringify({ sourceId, targetId }),
-  })
-}
-
 export type HandbookChapter = {
   position: number
   title: string
@@ -264,18 +228,5 @@ export function drawHandbookChapter(position: number, handbookId: string) {
   return request<HandbookView>(`/api/handbook/chapters/${position}/draw`, {
     method: 'POST',
     body: JSON.stringify({ handbookId }),
-  })
-}
-
-export function moveThemeHighlight(body: {
-  kind: ScopeKind
-  key: string
-  bookmarkId: string
-  themeId?: string | null
-  create?: boolean
-}) {
-  return request<ThemeBoard>('/api/themes/move', {
-    method: 'POST',
-    body: JSON.stringify(body),
   })
 }

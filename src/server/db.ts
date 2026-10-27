@@ -5,9 +5,7 @@ import { isStandaloneSentence, type HighlightLine } from '../shared/encounter'
 import type { MapQuote, MapSourceBook } from '../shared/reading-map'
 import type { BookDetail, BookSummary, Highlight, SyncRecord } from '../shared/types'
 import { normalizeProgress } from '../shared/progress'
-import type { ScopeKind, ThemeBoard, ThemeHighlightLine, ThemeScopeOption, ThemeWrite } from '../shared/themes'
 import { createHandbookStore } from './handbook-db'
-import { createThemeStore } from './theme-db'
 import { wereadReaderUrl } from './weread-url'
 import { openSeal, seal } from './secrets'
 
@@ -120,20 +118,6 @@ export type AppDatabase = ReturnType<typeof createHandbookStore> & {
   setShare(userId: string | undefined, share: { enabled: boolean; token: string }): void
   disableShare(userId?: string): void
   findEnabledShare(token: string): string | null
-  listThemeScopes(now: Date, userId?: string): { categories: ThemeScopeOption[]; groups: ThemeScopeOption[]; recent: ThemeScopeOption }
-  getThemeBoard(kind: ScopeKind, key: string, now: Date, userId?: string): ThemeBoard
-  listThemeHighlights(kind: ScopeKind, key: string, themeId: string, now: Date, userId?: string): ThemeHighlightLine[]
-  clusterThemeScope(kind: ScopeKind, key: string, now: Date, userId?: string): ThemeBoard
-  renameTheme(themeId: string, name: string, userId?: string): ThemeWrite
-  mergeThemes(sourceId: string, targetId: string, userId?: string): ThemeWrite
-  moveThemeHighlight(input: {
-    kind: ScopeKind
-    key: string
-    bookmarkId: string
-    themeId: string | null
-    create: boolean
-    now: Date
-  }, userId?: string): ThemeWrite
   close(): void
 }
 
@@ -243,28 +227,6 @@ export function openDatabase(filePath: string, secret: string | null = null): Ap
       sort_order INTEGER NOT NULL,
       PRIMARY KEY (user_id, group_name, book_id)
     );
-    CREATE TABLE IF NOT EXISTS themes (
-      user_id TEXT NOT NULL,
-      theme_id TEXT NOT NULL,
-      scope_kind TEXT NOT NULL,
-      scope_key TEXT NOT NULL,
-      name TEXT NOT NULL,
-      PRIMARY KEY (user_id, theme_id)
-    );
-    CREATE INDEX IF NOT EXISTS themes_scope ON themes (user_id, scope_kind, scope_key);
-    CREATE TABLE IF NOT EXISTS theme_highlights (
-      user_id TEXT NOT NULL,
-      theme_id TEXT NOT NULL,
-      bookmark_id TEXT NOT NULL,
-      PRIMARY KEY (user_id, theme_id, bookmark_id)
-    );
-    CREATE TABLE IF NOT EXISTS theme_scopes (
-      user_id TEXT NOT NULL,
-      scope_kind TEXT NOT NULL,
-      scope_key TEXT NOT NULL,
-      clustered_at TEXT NOT NULL,
-      PRIMARY KEY (user_id, scope_kind, scope_key)
-    );
     CREATE TABLE IF NOT EXISTS shelf_shares (
       user_id TEXT PRIMARY KEY,
       token TEXT NOT NULL UNIQUE,
@@ -291,6 +253,11 @@ export function openDatabase(filePath: string, secret: string | null = null): Ap
   if (!names.has('new_rating')) sqlite.exec('ALTER TABLE books ADD COLUMN new_rating INTEGER')
   if (!names.has('rating_label')) sqlite.exec('ALTER TABLE books ADD COLUMN rating_label TEXT')
   if (!names.has('finish_reading')) sqlite.exec('ALTER TABLE books ADD COLUMN finish_reading INTEGER NOT NULL DEFAULT 0')
+  sqlite.exec(`
+    DROP TABLE IF EXISTS theme_highlights;
+    DROP TABLE IF EXISTS themes;
+    DROP TABLE IF EXISTS theme_scopes;
+  `)
   migrateLegacyScope(sqlite)
 
   const uid = (userId?: string) => userId ?? LOCAL_USER_ID
@@ -717,7 +684,6 @@ export function openDatabase(filePath: string, secret: string | null = null): Ap
       ).get(token)
       return row?.user_id ?? null
     },
-    ...createThemeStore(sqlite, uid),
     ...createHandbookStore(sqlite, uid),
     close() {
       sqlite.close()
